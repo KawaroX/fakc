@@ -424,7 +424,7 @@ class SiliconFlowConceptEnhancer:
                 filtered_concepts['concept_relationships'][concept_name] = data.get('related_concepts', [])
         
         # 3. 调用AI进行精确分析
-        print(f"🤖 AI分析最相关的 {len(related_concepts)} 个概念...")
+        print(f"📂 AI分析最相关的 {len(related_concepts)} 个概念...")
         
         enhanced_prompt = self._build_hybrid_enhanced_prompt(
             note_content, note_title, filtered_concepts
@@ -623,7 +623,7 @@ def integrate_siliconflow_enhancer():
     
     def _enhance_with_hybrid_search(self):
         """使用BGE混合检索增强笔记"""
-        print("\n🤖 BGE混合检索模式（embedding召回+reranker精排）")
+        print("\n🔖 BGE混合检索模式（embedding召回+reranker精排）")
         
         enhancer = self._get_siliconflow_enhancer()
         

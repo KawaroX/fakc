@@ -238,7 +238,7 @@ class StreamlitLawExamNoteProcessor:
             existing_concepts = self.concept_manager.get_all_concepts_for_ai()
             
             # 3. AI处理：一次性提取所有知识点
-            st.write("🤖 AI正在分析字幕内容，提取知识点...")
+            st.write("📂 AI正在分析字幕内容，提取知识点...")
             all_notes = self.subtitle_ai_processor.extract_all_knowledge_points(
                 subtitle_content, subtitle_info
             )
@@ -691,7 +691,7 @@ else:
                 st.warning("请先上传字幕文件！")
 
     elif menu_choice == "直接输入AI格式文本":
-        st.header("🤖 直接输入AI格式文本")
+        st.header("� 直接输入AI格式文本")
         st.markdown("""
         <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
             <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
