@@ -5,9 +5,9 @@ import io
 import re
 import datetime
 import yaml
+import re
 
 # 确保项目根目录在sys.path中，以便导入其他模块
-# 假设app.py在项目根目录
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 from config import Config
@@ -16,14 +16,25 @@ from ai_processor import AIProcessor
 from concept_manager import ConceptManager
 from note_generator import ObsidianNoteGenerator
 from timestamp_linker import TimestampLinker
-from siliconflow_concept_enhancer import SiliconFlowConceptEnhancer # 导入SiliconFlow增强器
+from siliconflow_concept_enhancer import SiliconFlowConceptEnhancer
+
+def extract_url_from_text(text: str) -> str:
+    """
+    从文本中提取第一个URL。
+    Args:
+        text: 包含URL的文本。
+    Returns:
+        提取到的URL字符串，如果没有找到则返回空字符串。
+    """
+    # 匹配http或https开头的URL
+    match = re.search(r'https?://[^\s]+', text)
+    if match:
+        return match.group(0)
+    return ""
 
 # 重新定义LawExamNoteProcessor类，使其适应Streamlit的输入/输出
 class StreamlitLawExamNoteProcessor:
     def __init__(self):
-        # Streamlit应用中不需要InputManager来获取命令行输入
-        # self.input_manager = InputManager() 
-        
         self.subtitle_ai_processor = AIProcessor(
             Config.SUBTITLE_PROCESSING_API_KEY, 
             Config.SUBTITLE_PROCESSING_BASE_URL, 
@@ -35,9 +46,9 @@ class StreamlitLawExamNoteProcessor:
             Config.CONCEPT_ENHANCEMENT_MODEL
         )
         self.concept_manager = ConceptManager(Config.OBSIDIAN_VAULT_PATH)
-        self.note_generator = ObsidianNoteGenerator("temp") # 临时路径
+        self.note_generator = ObsidianNoteGenerator("temp")
         self.timestamp_linker = TimestampLinker(Config.OBSIDIAN_VAULT_PATH)
-        self.siliconflow_enhancer = None # 延迟初始化
+        self.siliconflow_enhancer = None
 
     def _get_siliconflow_enhancer(self):
         """获取SiliconFlow增强器实例（延迟初始化）"""
@@ -45,7 +56,7 @@ class StreamlitLawExamNoteProcessor:
             try:
                 self.siliconflow_enhancer = SiliconFlowConceptEnhancer(
                     Config.SILICONFLOW_API_KEY,
-                    self.concept_enhancement_ai_processor, # 使用概念增强AI处理器
+                    self.concept_enhancement_ai_processor,
                     self.concept_manager
                 )
                 st.success("✅ SiliconFlow BGE增强器已初始化")
@@ -54,13 +65,94 @@ class StreamlitLawExamNoteProcessor:
                 return None
         return self.siliconflow_enhancer
 
+    def process_ai_formatted_text(self, ai_text: str, course_url: str, selected_subject: str, source_info: str):
+        """
+        处理AI格式的文本，直接解析并生成笔记
+        
+        Args:
+            ai_text: AI格式的文本内容
+            course_url: 课程URL
+            selected_subject: 选择的科目
+            source_info: 来源信息
+        """
+        st.info("🚀 开始解析AI格式文本...")
+        
+        try:
+            # 1. 解析AI格式的文本
+            st.write("📖 解析文本内容...")
+            all_notes = self.subtitle_ai_processor._parse_ai_response(ai_text)
+            
+            if not all_notes:
+                st.warning("❌ 未能解析到有效的笔记格式，请检查文本格式")
+                st.info("💡 提示：确保文本包含正确的 === NOTE_SEPARATOR === 分隔符和YAML/CONTENT部分")
+                return []
+            
+            st.success(f"✅ 解析到 {len(all_notes)} 个笔记")
+            
+            # 2. 为每个笔记补充必要的元数据
+            for note in all_notes:
+                if 'yaml' in note and note['yaml']:
+                    # 确保有必要的字段
+                    note['yaml']['course_url'] = course_url
+                    note['yaml']['source'] = source_info
+                    note['yaml']['subject'] = selected_subject
+                    
+                    # 如果标题中没有科目前缀，添加上
+                    title = note['yaml'].get('title', '')
+                    if not title.startswith(f'【{selected_subject}】'):
+                        note['yaml']['title'] = f'【{selected_subject}】{title}'
+            
+            # 3. 扫描现有概念库
+            st.write("🔍 扫描现有概念库...")
+            self.concept_manager.scan_existing_notes()
+            existing_concepts = self.concept_manager.get_all_concepts_for_ai()
+            
+            # 4. AI增强：优化概念关系
+            st.write("🔗 AI正在优化概念关系...")
+            enhanced_notes = self.concept_enhancement_ai_processor.enhance_concept_relationships(
+                all_notes, existing_concepts
+            )
+            
+            # 5. 确定输出路径
+            output_path = Config.get_output_path(selected_subject)
+            os.makedirs(output_path, exist_ok=True)
+            
+            # 6. 生成笔记文件
+            st.write(f"📝 生成笔记文件到: {output_path}")
+            created_files = []
+            for note_data in enhanced_notes:
+                file_path = self.note_generator.create_note_file(
+                    note_data, 
+                    output_path
+                )
+                created_files.append(file_path)
+            
+            # 7. 更新概念数据库
+            self.concept_manager.update_database(enhanced_notes)
+            
+            st.success(f"\n🎉 成功生成 {len(created_files)} 个笔记文件")
+            st.write(f"📁 保存位置: {output_path}")
+            
+            st.subheader("📋 生成的笔记:")
+            for file_path in created_files:
+                filename = os.path.basename(file_path)
+                st.markdown(f"  - `{filename}`")
+            
+            # 8. 自动进行时间戳链接化处理
+            if course_url:
+                st.info("\n🔗 自动进行时间戳链接化处理...")
+                self.timestamp_linker.process_subject_notes(selected_subject)
+                st.success("✅ 时间戳链接化处理完成。")
+            
+            return created_files
+            
+        except Exception as e:
+            st.error(f"❌ 处理过程中出错: {e}")
+            st.exception(e)
+            return []
+
     def process_subtitle_file_streamlit(self, uploaded_file, course_url, selected_subject, source_info):
-        """
-        处理单个字幕文件的完整流程，适配Streamlit输入。
-        uploaded_file: Streamlit的UploadedFile对象
-        course_url: 课程URL字符串
-        selected_subject: 用户选择的科目名称
-        """
+        """处理单个字幕文件的完整流程，适配Streamlit输入。"""
         st.info("🚀 开始处理字幕文件...")
         
         try:
@@ -74,15 +166,15 @@ class StreamlitLawExamNoteProcessor:
             
             # 确定输出路径
             output_path = Config.get_output_path(selected_subject)
-            os.makedirs(output_path, exist_ok=True) # 确保科目文件夹存在
+            os.makedirs(output_path, exist_ok=True)
             
             # 模拟subtitle_info，加入course_url和source
             subtitle_info = {
-                'file_path': uploaded_file.name, # 仅用于显示，实际不读取
+                'file_path': uploaded_file.name,
                 'course_url': course_url,
                 'subject': selected_subject,
-                'output_path': output_path, # 传递给note_generator
-                'source': source_info # 使用用户提供的或默认的来源信息
+                'output_path': output_path,
+                'source': source_info
             }
             
             # 2. 扫描现有概念库
@@ -90,7 +182,7 @@ class StreamlitLawExamNoteProcessor:
             self.concept_manager.scan_existing_notes()
             existing_concepts = self.concept_manager.get_all_concepts_for_ai()
             
-            # 3. AI处理：一次性提取所有知识点 (使用字幕处理模型)
+            # 3. AI处理：一次性提取所有知识点
             st.write("🤖 AI正在分析字幕内容，提取知识点...")
             all_notes = self.subtitle_ai_processor.extract_all_knowledge_points(
                 subtitle_content, subtitle_info
@@ -102,24 +194,23 @@ class StreamlitLawExamNoteProcessor:
             
             st.success(f"✅ 提取到 {len(all_notes)} 个知识点")
             
-            # 4. AI增强：优化概念关系 (使用概念增强模型)
+            # 4. AI增强：优化概念关系
             st.write("🔗 AI正在优化概念关系...")
             enhanced_notes = self.concept_enhancement_ai_processor.enhance_concept_relationships(
                 all_notes, existing_concepts
             )
             
-            # 5. 生成笔记文件（保存到指定科目文件夹）
+            # 5. 生成笔记文件
             st.write(f"📝 生成笔记文件到: {output_path}")
             created_files = []
             for note_data in enhanced_notes:
-                # 在这里将course_url添加到note_data的YAML front matter
                 if 'yaml_front_matter' not in note_data:
                     note_data['yaml_front_matter'] = {}
                 note_data['yaml_front_matter']['course_url'] = course_url
                 
                 file_path = self.note_generator.create_note_file(
                     note_data, 
-                    output_path # 使用科目特定的输出路径
+                    output_path
                 )
                 created_files.append(file_path)
             
@@ -136,9 +227,6 @@ class StreamlitLawExamNoteProcessor:
             
             # 7. 自动进行时间戳链接化处理
             st.info("\n🔗 自动进行时间戳链接化处理...")
-            # 假设时间戳链接器可以直接处理已创建的文件
-            # 或者，如果需要，可以传入一个列表给timestamp_linker
-            # 这里为了简化，直接调用处理所有笔记的方法，确保新生成的笔记也被处理
             self.timestamp_linker.process_subject_notes(selected_subject)
             st.success("✅ 时间戳链接化处理完成。")
 
@@ -146,7 +234,7 @@ class StreamlitLawExamNoteProcessor:
             
         except Exception as e:
             st.error(f"❌ 处理过程中出错: {e}")
-            st.exception(e) # 显示详细错误信息
+            st.exception(e)
             return []
 
     def _collect_all_law_notes(self):
@@ -169,7 +257,6 @@ class StreamlitLawExamNoteProcessor:
                             with open(file_path, 'r', encoding='utf-8') as f:
                                 content = f.read()
                             
-                            # 提取标题
                             yaml_match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
                             if yaml_match:
                                 yaml_data = yaml.safe_load(yaml_match.group(1))
@@ -207,7 +294,6 @@ class StreamlitLawExamNoteProcessor:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
                         
-                        # 提取标题
                         yaml_match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
                         if yaml_match:
                             yaml_data = yaml.safe_load(yaml_match.group(1))
@@ -258,9 +344,7 @@ class StreamlitLawExamNoteProcessor:
                     os.remove(backup_path)
                     
                     enhanced_count += 1
-                    # st.write(f"  ✅ 增强成功") # 避免过多输出
                 else:
-                    # st.write(f"  ⚠️ 无需修改") # 避免过多输出
                     pass
                     
             except Exception as e:
@@ -302,7 +386,7 @@ class StreamlitLawExamNoteProcessor:
             
             md_file = os.path.join(Config.OBSIDIAN_VAULT_PATH, "概念数据库.md")
             if os.path.exists(md_file):
-                file_size = os.path.getsize(md_file) / 1024  # KB
+                file_size = os.path.getsize(md_file) / 1024
                 mtime = os.path.getmtime(md_file)
                 last_modified = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
                 st.write(f"  - 📝 `概念数据库.md`: {file_size:.1f} KB (更新: {last_modified})")
@@ -311,7 +395,7 @@ class StreamlitLawExamNoteProcessor:
             
             json_file = os.path.join(Config.OBSIDIAN_VAULT_PATH, "概念数据库.json")
             if os.path.exists(json_file):
-                file_size = os.path.getsize(json_file) / 1024  # KB
+                file_size = os.path.getsize(json_file) / 1024
                 mtime = os.path.getmtime(json_file)
                 last_modified = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
                 st.write(f"  - 📊 `概念数据库.json`: {file_size:.1f} KB (更新: {last_modified})")
@@ -334,22 +418,6 @@ class StreamlitLawExamNoteProcessor:
             st.write(f"  {exists_icon} **{subject}** -> `{folder}`")
         st.markdown("---")
 
-    def process_timestamps_streamlit(self, timestamp_scope, selected_subject_timestamp):
-        """时间戳链接化处理，适配Streamlit输入/输出"""
-        st.info("🔗 开始处理时间戳链接...")
-        
-        if timestamp_scope == "处理所有科目的笔记":
-            result = self.timestamp_linker.process_all_notes_with_course_url()
-        elif timestamp_scope == "处理特定科目的笔记" and selected_subject_timestamp:
-            result = self.timestamp_linker.process_subject_notes(selected_subject_timestamp)
-        else:
-            st.warning("无效的时间戳处理范围选择。")
-            return
-
-        if result['total'] == 0:
-            st.warning("💡 提示：请确保笔记的YAML中包含course_url字段，例如：`course_url: \"https://www.bilibili.com/video/BV1xxx\"`")
-        st.success("✅ 时间戳链接化处理完成！")
-
 
 # Streamlit UI
 st.set_page_config(page_title="法考字幕转Obsidian笔记处理器", layout="wide")
@@ -369,33 +437,138 @@ Config.ensure_directories()
 st.sidebar.header("菜单")
 menu_choice = st.sidebar.radio(
     "选择功能",
-    ("处理新字幕文件", "增强现有笔记概念关系", "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射")
+    ("处理新字幕文件", "直接输入AI格式文本", "增强现有笔记概念关系", "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射")
 )
 
 if menu_choice == "处理新字幕文件":
     st.header("处理新字幕文件")
     
     uploaded_file = st.file_uploader("上传字幕文件 (.srt, .txt)", type=["srt", "txt", "lrc"])
-    course_url = st.text_input("输入课程视频URL (可选，用于时间戳链接)", "")
-    source_input = st.text_input("输入来源信息 (可选，默认为文件名)", "")
+    
+    # 初始化session state中的source_input默认值
+    if 'source_input_default_subtitle' not in st.session_state:
+        st.session_state.source_input_default_subtitle = ""
+
+    # 当上传文件变化时，更新session state中的默认值
+    if uploaded_file is not None and st.session_state.source_input_default_subtitle != uploaded_file.name:
+        st.session_state.source_input_default_subtitle = uploaded_file.name
+        # Streamlit会在文件上传后自动重新运行脚本，所以这里不需要st.experimental_rerun()
+
+    raw_course_url = st.text_input("输入课程视频URL (可选，用于时间戳链接)", "", key="raw_course_url_subtitle")
+    course_url = extract_url_from_text(raw_course_url) # 立即提取URL
+    
+    source_input = st.text_input("输入来源信息 (可选，默认为文件名)", value=st.session_state.source_input_default_subtitle, key="source_input_subtitle")
     
     subjects = list(Config.SUBJECT_MAPPING.keys())
-    selected_subject = st.selectbox("选择科目", subjects)
+    selected_subject = st.selectbox("选择科目", subjects, key="selected_subject_subtitle")
     
     if st.button("开始处理"):
         if uploaded_file is not None:
-            # 如果用户没有提供source，则使用文件名作为默认值
-            final_source = source_input if source_input else uploaded_file.name
+            # final_source现在直接使用source_input的值，因为其默认值已动态更新
+            final_source = source_input 
             with st.spinner("正在处理，请稍候..."):
                 processor.process_subtitle_file_streamlit(uploaded_file, course_url, selected_subject, final_source)
         else:
             st.warning("请先上传字幕文件！")
 
+elif menu_choice == "直接输入AI格式文本":
+    st.header("直接输入AI格式文本")
+    st.info("💡 在这里可以直接粘贴AI生成的笔记格式文本，系统会自动解析并生成Obsidian笔记。")
+    
+    # 显示格式示例
+    with st.expander("查看AI格式示例"):
+        st.code("""=== NOTE_SEPARATOR ===
+YAML:
+---
+title: "【民法】物权法基础"
+aliases: ["物权法基础", "物权基本概念"]
+tags: ["民法", "物权法", "基础概念", "高"]
+source: "法考精讲课程"
+course_url: "https://www.bilibili.com/video/BV1xxx"
+time_range: "00:00-05:30"
+subject: "民法"
+exam_importance: "高"
+created: "{{date:YYYY-MM-DD}}"
+---
+
+CONTENT:
+# 【民法】物权法基础
+
+## 核心定义
+⏰ [00:15.30]
+物权是指权利人依法对特定的物享有直接支配和排他的权利...
+
+## 物权的特征
+⏰ [01:23.45]
+1. 支配性：权利人可以直接支配物
+2. 排他性：一物一权原则
+...
+
+## 相关概念
+- [[【民法】债权|债权]]
+- [[【民法】所有权|所有权]]
+
+---
+*视频时间段:[00:00]-[05:30]*
+
+=== NOTE_SEPARATOR ===
+[下一个笔记...]""", language="markdown")
+    
+    # 输入区域
+    ai_text = st.text_area(
+        "粘贴AI格式的文本内容",
+        height=400,
+        placeholder="将AI生成的完整格式文本粘贴到这里...\n\n确保包含：\n- === NOTE_SEPARATOR === 分隔符\n- YAML: 部分\n- CONTENT: 部分",
+        help="请确保文本格式正确，包含所有必要的分隔符和标记",
+        key="ai_text_input"
+    )
+    
+    # 课程信息
+    st.subheader("课程信息")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        raw_course_url = st.text_input("课程视频URL (可选)", "", help="用于生成时间戳链接", key="raw_course_url_ai_text")
+        course_url = extract_url_from_text(raw_course_url) # 立即提取URL
+        source_input = st.text_input("来源信息", "手动输入", help="笔记的来源说明", key="source_input_ai_text")
+    
+    with col2:
+        subjects = list(Config.SUBJECT_MAPPING.keys())
+        selected_subject = st.selectbox("选择科目", subjects, help="笔记将保存到对应科目文件夹", key="selected_subject_ai_text")
+    
+    # 预览功能
+    if ai_text.strip():
+        with st.expander("预览解析结果"):
+            try:
+                preview_notes = processor.subtitle_ai_processor._parse_ai_response(ai_text)
+                if preview_notes:
+                    st.success(f"✅ 可以解析到 {len(preview_notes)} 个笔记")
+                    for i, note in enumerate(preview_notes, 1):
+                        if 'yaml' in note and note['yaml']:
+                            st.write(f"**笔记 {i}**: {note['yaml'].get('title', '未命名')}")
+                else:
+                    st.error("❌ 无法解析文本，请检查格式")
+            except Exception as e:
+                st.error(f"❌ 解析预览失败: {e}")
+    
+    # 处理按钮
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("🚀 开始处理", type="primary"):
+            if ai_text.strip():
+                with st.spinner("正在处理，请稍候..."):
+                    processor.process_ai_formatted_text(ai_text, course_url, selected_subject, source_input)
+            else:
+                st.warning("请先输入AI格式的文本内容！")
+    
+    with col2:
+        if st.button("🧹 清空内容"):
+            st.rerun()
+
 elif menu_choice == "增强现有笔记概念关系":
     st.header("增强现有笔记概念关系")
     st.info("此功能将使用AI优化现有笔记中的概念关系。")
 
-    # 先尝试加载现有概念数据库
     if not processor.concept_manager.load_database_from_file():
         st.warning("📚 概念数据库不存在，请先处理一些字幕文件或运行笔记增强功能来建立数据库。")
     
@@ -450,12 +623,11 @@ elif menu_choice == "增强现有笔记概念关系":
                         )
                     else:
                         st.error("BGE增强器未成功初始化。")
-                else: # 传统方式
+                else:
                     processor._process_notes_enhancement(notes_to_enhance)
                 st.success("笔记增强处理完成！")
                 st.info("📚 重新扫描更新概念数据库...")
                 processor.concept_manager.scan_existing_notes()
-
 
 elif menu_choice == "时间戳链接化处理":
     st.header("时间戳链接化处理")

@@ -100,10 +100,20 @@ class TimestampProcessor:
         # :\d{2} 匹配冒号和两位数字 (秒)
         # (?:\.\d{1,3})? 匹配可选的毫秒部分 (. 后跟1到3位数字)
         # (?::\d{2})? 匹配可选的HH:MM:SS中的HH部分
+        # 定义时间戳的通用匹配模式，支持 HH:MM:SS.mm, MM:SS.mm, SS.mm 等格式
+        # \d{1,2} 匹配1或2位数字 (小时/分钟/秒)
+        # (?::\d{2}){0,2} 匹配可选的分钟和秒部分 (0到2次)
+        # (?:\.\d{1,3})? 匹配可选的毫秒部分
+        TIME_FORMAT_REGEX = r'\d{1,2}(?::\d{2}){0,2}(?:\.\d{1,3})?'
+
+        # 匹配两种时间戳格式：
+        # 1. ⏰ [单个时间戳]
+        # 2. [时间戳1 - 时间戳2] (只提取时间戳1)
         # (?!\() 负向先行断言，确保后面没有紧跟着一个左括号，避免重复链接化
-        timestamp_pattern = r'⏰ \[(\d{1,2}:\d{2}(?:\.\d{1,3})?(?::\d{2}(?:\.\d{1,3})?)?)\](?!\()'
+        timestamp_pattern = r'(?:⏰\s*)?\[(' + TIME_FORMAT_REGEX + r')(?:\s*-\s*' + TIME_FORMAT_REGEX + r')?\](?!\()'
         
         def replace_timestamp(match):
+            # match.group(1) 总是捕获第一个时间戳
             timestamp = match.group(1)
             return TimestampProcessor.create_timestamp_link(timestamp, course_url)
         

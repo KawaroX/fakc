@@ -72,6 +72,11 @@ class LawExamNoteProcessor:
             print(f"📝 生成笔记文件到: {subtitle_info['subject_folder']}")
             created_files = []
             for note_data in enhanced_notes:
+                # 确保yaml_front_matter存在，并添加course_url
+                if 'yaml_front_matter' not in note_data:
+                    note_data['yaml_front_matter'] = {}
+                note_data['yaml_front_matter']['course_url'] = subtitle_info['course_url']
+
                 file_path = self.note_generator.create_note_file(
                     note_data, 
                     subtitle_info['output_path']  # 使用科目特定的输出路径
@@ -90,6 +95,12 @@ class LawExamNoteProcessor:
                 filename = os.path.basename(file_path)
                 print(f"  • {filename}")
             
+            # 8. 自动进行时间戳链接化处理
+            if subtitle_info['course_url']:
+                print("\n🔗 自动进行时间戳链接化处理...")
+                self.timestamp_linker.process_subject_notes(subtitle_info['subject'])
+                print("✅ 时间戳链接化处理完成。")
+
             return created_files
             
         except Exception as e:
