@@ -1,17 +1,23 @@
 import os
+from dotenv import load_dotenv
 from typing import Dict, Any
+
+load_dotenv()
 
 class Config:
     # API配置
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-5q5D1V9gxu0u1MfP8OCqo7c3wwwb36ztuYywin07wq5ADx5b")
-    OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://yunwu.ai/v1")
-    # 字幕处理模型 (例如，更注重内容提取和结构化的模型)
+    # 字幕处理AI配置
+    SUBTITLE_PROCESSING_API_KEY = os.getenv("SUBTITLE_PROCESSING_API_KEY")
+    SUBTITLE_PROCESSING_BASE_URL = os.getenv("SUBTITLE_PROCESSING_BASE_URL", "https://yunwu.ai/v1")
     SUBTITLE_PROCESSING_MODEL = os.getenv("SUBTITLE_PROCESSING_MODEL", "gpt-4.1-mini-2025-04-14")
-    # 概念增强模型 (例如，更注重关系推理和知识图谱的模型)
-    CONCEPT_ENHANCEMENT_MODEL = os.getenv("CONCEPT_ENHANCEMENT_MODEL", "gpt-4.1-2025-04-14") # 可以设置为不同的模型
+
+    # 概念增强AI配置
+    CONCEPT_ENHANCEMENT_API_KEY = os.getenv("CONCEPT_ENHANCEMENT_API_KEY")
+    CONCEPT_ENHANCEMENT_BASE_URL = os.getenv("CONCEPT_ENHANCEMENT_BASE_URL", "https://yunwu.ai/v1")
+    CONCEPT_ENHANCEMENT_MODEL = os.getenv("CONCEPT_ENHANCEMENT_MODEL", "gpt-4.1-2025-04-14")
 
     # SiliconFlow API配置
-    SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "sk-rdraiurfdxaaytyxluvwuhoaedfnwgpjvddtebmynzzvuhle")
+    SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY")
 
     # 文件路径配置
     OBSIDIAN_VAULT_PATH = "/Users/kawarox/Library/Mobile Documents/iCloud~md~obsidian/Documents/Xiada"

@@ -100,7 +100,8 @@ class TimestampProcessor:
         # :\d{2} 匹配冒号和两位数字 (秒)
         # (?:\.\d{1,3})? 匹配可选的毫秒部分 (. 后跟1到3位数字)
         # (?::\d{2})? 匹配可选的HH:MM:SS中的HH部分
-        timestamp_pattern = r'⏰ \[(\d{1,2}:\d{2}(?:\.\d{1,3})?(?::\d{2}(?:\.\d{1,3})?)?)\]'
+        # (?!\() 负向先行断言，确保后面没有紧跟着一个左括号，避免重复链接化
+        timestamp_pattern = r'⏰ \[(\d{1,2}:\d{2}(?:\.\d{1,3})?(?::\d{2}(?:\.\d{1,3})?)?)\](?!\()'
         
         def replace_timestamp(match):
             timestamp = match.group(1)

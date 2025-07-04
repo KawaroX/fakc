@@ -434,9 +434,7 @@ class SiliconFlowConceptEnhancer:
             response = self.ai_processor.client.chat.completions.create(
                 model=self.ai_processor.model,
                 messages=[{"role": "user", "content": enhanced_prompt}],
-                temperature=0.05,
-                frequency_penalty=0.3,
-                presence_penalty=0.0
+                temperature=0,
             )
             
             result = self.ai_processor._parse_single_note_enhancement_response(

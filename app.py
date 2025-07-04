@@ -25,13 +25,13 @@ class StreamlitLawExamNoteProcessor:
         # self.input_manager = InputManager() 
         
         self.subtitle_ai_processor = AIProcessor(
-            Config.OPENAI_API_KEY, 
-            Config.OPENAI_BASE_URL, 
+            Config.SUBTITLE_PROCESSING_API_KEY, 
+            Config.SUBTITLE_PROCESSING_BASE_URL, 
             Config.SUBTITLE_PROCESSING_MODEL
         )
         self.concept_enhancement_ai_processor = AIProcessor(
-            Config.OPENAI_API_KEY, 
-            Config.OPENAI_BASE_URL, 
+            Config.CONCEPT_ENHANCEMENT_API_KEY, 
+            Config.CONCEPT_ENHANCEMENT_BASE_URL, 
             Config.CONCEPT_ENHANCEMENT_MODEL
         )
         self.concept_manager = ConceptManager(Config.OBSIDIAN_VAULT_PATH)
@@ -54,7 +54,7 @@ class StreamlitLawExamNoteProcessor:
                 return None
         return self.siliconflow_enhancer
 
-    def process_subtitle_file_streamlit(self, uploaded_file, course_url, selected_subject):
+    def process_subtitle_file_streamlit(self, uploaded_file, course_url, selected_subject, source_info):
         """
         处理单个字幕文件的完整流程，适配Streamlit输入。
         uploaded_file: Streamlit的UploadedFile对象
@@ -82,7 +82,7 @@ class StreamlitLawExamNoteProcessor:
                 'course_url': course_url,
                 'subject': selected_subject,
                 'output_path': output_path, # 传递给note_generator
-                'source': "Uploaded Subtitle" # 为AI处理器提供来源信息
+                'source': source_info # 使用用户提供的或默认的来源信息
             }
             
             # 2. 扫描现有概念库
@@ -149,6 +149,208 @@ class StreamlitLawExamNoteProcessor:
             st.exception(e) # 显示详细错误信息
             return []
 
+    def _collect_all_law_notes(self):
+        """收集所有法考笔记，适配Streamlit输出"""
+        notes = []
+        
+        for subject_name, folder_name in Config.SUBJECT_MAPPING.items():
+            subject_path = os.path.join(Config.OBSIDIAN_VAULT_PATH, folder_name)
+            
+            if not os.path.exists(subject_path):
+                st.warning(f"⚠️ 科目文件夹不存在: {subject_path}")
+                continue
+            
+            for root, dirs, files in os.walk(subject_path):
+                for file in files:
+                    if file.endswith('.md') and file != "概念数据库.md":
+                        file_path = os.path.join(root, file)
+                        
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                            
+                            # 提取标题
+                            yaml_match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+                            if yaml_match:
+                                yaml_data = yaml.safe_load(yaml_match.group(1))
+                                title = yaml_data.get('title', os.path.splitext(file)[0])
+                            else:
+                                title = os.path.splitext(file)[0]
+                            
+                            notes.append({
+                                'title': title,
+                                'file_path': file_path,
+                                'content': content,
+                                'subject': subject_name
+                            })
+                            
+                        except Exception as e:
+                            st.warning(f"⚠️ 读取笔记失败 {file_path}: {e}")
+        
+        return notes
+
+    def _collect_subject_notes_by_name(self, subject: str):
+        """根据科目名称收集笔记，适配Streamlit输出"""
+        subject_folder = Config.get_subject_folder_name(subject)
+        subject_path = os.path.join(Config.OBSIDIAN_VAULT_PATH, subject_folder)
+        
+        if not os.path.exists(subject_path):
+            st.error(f"❌ 科目文件夹不存在: {subject_folder}")
+            return []
+        
+        notes = []
+        for root, dirs, files in os.walk(subject_path):
+            for file in files:
+                if file.endswith('.md') and file not in ["概念数据库.md", "概念嵌入缓存_BGE.json"]:
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # 提取标题
+                        yaml_match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+                        if yaml_match:
+                            yaml_data = yaml.safe_load(yaml_match.group(1))
+                            title = yaml_data.get('title', os.path.splitext(file)[0])
+                        else:
+                            title = os.path.splitext(file)[0]
+                        
+                        notes.append({
+                            'title': title,
+                            'file_path': file_path,
+                            'content': content,
+                            'subject': subject
+                        })
+                    except Exception as e:
+                        st.warning(f"⚠️ 读取失败 {file}: {e}")
+        
+        return notes
+
+    def _process_notes_enhancement(self, notes):
+        """批量处理笔记增强，适配Streamlit输出"""
+        existing_concepts = self.concept_manager.get_all_concepts_for_ai()
+        
+        enhanced_count = 0
+        failed_count = 0
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        for i, note_info in enumerate(notes, 1):
+            status_text.text(f"🔄 处理 {i}/{len(notes)}: {note_info['title']}")
+            progress_bar.progress(i / len(notes))
+            
+            try:
+                enhancement_result = self.concept_enhancement_ai_processor.enhance_single_note_concepts(
+                    note_info['content'], 
+                    note_info['title'],
+                    existing_concepts
+                )
+                
+                if enhancement_result and enhancement_result.get('modified', False):
+                    backup_path = note_info['file_path'] + '.backup'
+                    with open(backup_path, 'w', encoding='utf-8') as f:
+                        f.write(note_info['content'])
+                    
+                    with open(note_info['file_path'], 'w', encoding='utf-8') as f:
+                        f.write(enhancement_result['enhanced_content'])
+                    
+                    os.remove(backup_path)
+                    
+                    enhanced_count += 1
+                    # st.write(f"  ✅ 增强成功") # 避免过多输出
+                else:
+                    # st.write(f"  ⚠️ 无需修改") # 避免过多输出
+                    pass
+                    
+            except Exception as e:
+                failed_count += 1
+                st.error(f"  ❌ 增强失败 {note_info['title']}: {e}")
+        
+        progress_bar.empty()
+        status_text.empty()
+
+        st.success(f"\n🎉 处理完成！")
+        st.write(f"  ✅ 成功增强: {enhanced_count} 个")
+        st.write(f"  ⚠️ 无需修改: {len(notes) - enhanced_count - failed_count} 个")
+        st.write(f"  ❌ 处理失败: {failed_count} 个")
+        
+        if enhanced_count > 0:
+            st.info(f"\n📚 重新扫描更新概念数据库...")
+            self.concept_manager.scan_existing_notes()
+
+    def show_concept_database_status(self):
+        """查看概念数据库状态，适配Streamlit输出"""
+        st.subheader("📊 概念数据库状态")
+        st.markdown("---")
+        
+        if self.concept_manager.load_database_from_file():
+            total_concepts = len(self.concept_manager.concept_database)
+            st.success(f"✅ 数据库已存在: {total_concepts} 个概念")
+            
+            subject_stats = {}
+            for concept, data in self.concept_manager.concept_database.items():
+                subject = data.get('subject', '未知')
+                subject_stats[subject] = subject_stats.get(subject, 0) + 1
+            
+            st.markdown("\n**📚 各科目概念统计:**")
+            for subject, count in sorted(subject_stats.items()):
+                folder_name = Config.get_subject_folder_name(subject) if subject in Config.SUBJECT_MAPPING else subject
+                st.write(f"  - **{folder_name}**: {count} 个概念")
+            
+            st.markdown("\n**📄 数据库文件状态:**")
+            
+            md_file = os.path.join(Config.OBSIDIAN_VAULT_PATH, "概念数据库.md")
+            if os.path.exists(md_file):
+                file_size = os.path.getsize(md_file) / 1024  # KB
+                mtime = os.path.getmtime(md_file)
+                last_modified = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                st.write(f"  - 📝 `概念数据库.md`: {file_size:.1f} KB (更新: {last_modified})")
+            else:
+                st.warning(f"  - 📝 `概念数据库.md`: ❌ 不存在")
+            
+            json_file = os.path.join(Config.OBSIDIAN_VAULT_PATH, "概念数据库.json")
+            if os.path.exists(json_file):
+                file_size = os.path.getsize(json_file) / 1024  # KB
+                mtime = os.path.getmtime(json_file)
+                last_modified = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                st.write(f"  - 📊 `概念数据库.json`: {file_size:.1f} KB (更新: {last_modified})")
+            else:
+                st.warning(f"  - 📊 `概念数据库.json`: ❌ 不存在")
+                
+        else:
+            st.error("❌ 概念数据库不存在")
+            st.info("💡 建议: 先处理一些字幕文件或运行笔记增强功能来建立数据库")
+        
+        st.markdown("---")
+
+    def show_subject_mapping(self):
+        """显示科目文件夹映射，适配Streamlit输出"""
+        st.subheader("📚 科目文件夹映射:")
+        st.markdown("---")
+        for i, (subject, folder) in enumerate(Config.SUBJECT_MAPPING.items(), 1):
+            folder_path = Config.get_output_path(subject)
+            exists_icon = "✅" if os.path.exists(folder_path) else "📁"
+            st.write(f"  {exists_icon} **{subject}** -> `{folder}`")
+        st.markdown("---")
+
+    def process_timestamps_streamlit(self, timestamp_scope, selected_subject_timestamp):
+        """时间戳链接化处理，适配Streamlit输入/输出"""
+        st.info("🔗 开始处理时间戳链接...")
+        
+        if timestamp_scope == "处理所有科目的笔记":
+            result = self.timestamp_linker.process_all_notes_with_course_url()
+        elif timestamp_scope == "处理特定科目的笔记" and selected_subject_timestamp:
+            result = self.timestamp_linker.process_subject_notes(selected_subject_timestamp)
+        else:
+            st.warning("无效的时间戳处理范围选择。")
+            return
+
+        if result['total'] == 0:
+            st.warning("💡 提示：请确保笔记的YAML中包含course_url字段，例如：`course_url: \"https://www.bilibili.com/video/BV1xxx\"`")
+        st.success("✅ 时间戳链接化处理完成！")
+
+
 # Streamlit UI
 st.set_page_config(page_title="法考字幕转Obsidian笔记处理器", layout="wide")
 
@@ -173,16 +375,19 @@ menu_choice = st.sidebar.radio(
 if menu_choice == "处理新字幕文件":
     st.header("处理新字幕文件")
     
-    uploaded_file = st.file_uploader("上传字幕文件 (.srt, .txt)", type=["srt", "txt"])
+    uploaded_file = st.file_uploader("上传字幕文件 (.srt, .txt)", type=["srt", "txt", "lrc"])
     course_url = st.text_input("输入课程视频URL (可选，用于时间戳链接)", "")
+    source_input = st.text_input("输入来源信息 (可选，默认为文件名)", "")
     
     subjects = list(Config.SUBJECT_MAPPING.keys())
     selected_subject = st.selectbox("选择科目", subjects)
     
     if st.button("开始处理"):
         if uploaded_file is not None:
+            # 如果用户没有提供source，则使用文件名作为默认值
+            final_source = source_input if source_input else uploaded_file.name
             with st.spinner("正在处理，请稍候..."):
-                processor.process_subtitle_file_streamlit(uploaded_file, course_url, selected_subject)
+                processor.process_subtitle_file_streamlit(uploaded_file, course_url, selected_subject, final_source)
         else:
             st.warning("请先上传字幕文件！")
 

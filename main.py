@@ -13,14 +13,14 @@ class LawExamNoteProcessor:
         self.input_manager = InputManager()
         # 用于字幕处理的AI模型
         self.subtitle_ai_processor = AIProcessor(
-            Config.OPENAI_API_KEY, 
-            Config.OPENAI_BASE_URL, 
+            Config.SUBTITLE_PROCESSING_API_KEY, 
+            Config.SUBTITLE_PROCESSING_BASE_URL, 
             Config.SUBTITLE_PROCESSING_MODEL
         )
         # 用于概念增强的AI模型
         self.concept_enhancement_ai_processor = AIProcessor(
-            Config.OPENAI_API_KEY, 
-            Config.OPENAI_BASE_URL, 
+            Config.CONCEPT_ENHANCEMENT_API_KEY, 
+            Config.CONCEPT_ENHANCEMENT_BASE_URL, 
             Config.CONCEPT_ENHANCEMENT_MODEL
         )
         self.concept_manager = ConceptManager(Config.OBSIDIAN_VAULT_PATH)

@@ -63,7 +63,9 @@ class InputManager:
     
     def validate_file_exists(self, file_path: str) -> bool:
         """验证文件是否存在"""
-        return os.path.isfile(file_path)
+        # 移除路径两端的引号，以防用户输入时为了处理空格而添加引号
+        cleaned_file_path = file_path.strip('"\'')
+        return os.path.isfile(cleaned_file_path)
     
     def read_subtitle_file(self, file_path: str) -> str:
         """读取字幕文件内容"""
