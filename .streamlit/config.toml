@@ -1,0 +1,13 @@
+[theme]
+# 主要颜色
+primaryColor = "#4A90E2"  # 现代化的蓝色
+backgroundColor = "#FFFFFF" # 纯白背景
+secondaryBackgroundColor = "#F0F2F6" # 柔和的灰蓝色作为次要背景
+textColor = "#262730" # 深色文字,提供良好对比度
+
+# 字体设置
+font = "sans serif"
+
+# 页面宽度和布局
+[server]
+maxUploadSize = 200
