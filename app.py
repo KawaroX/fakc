@@ -238,7 +238,7 @@ class StreamlitLawExamNoteProcessor:
             existing_concepts = self.concept_manager.get_all_concepts_for_ai()
             
             # 3. AI处理：一次性提取所有知识点
-            st.write("📂 AI正在分析字幕内容，提取知识点...")
+            st.write("🤖 AI正在分析字幕内容，提取知识点...")
             all_notes = self.subtitle_ai_processor.extract_all_knowledge_points(
                 subtitle_content, subtitle_info
             )
@@ -610,6 +610,120 @@ st.markdown("""
         border: 1px solid #E2E8F0;
     }
 </style>
+
+<style>
+    /* Notion风格增强 */
+    .notion-style {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        color: #37352f;
+    }
+    
+    .notion-block {
+        background: #fff;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 10px 0;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        border: 1px solid #eee;
+    }
+    
+    .notion-block h1, .notion-block h2, .notion-block h3 {
+        color: #37352f;
+        margin: 1.2em 0 0.6em;
+    }
+    
+    .notion-block ul, .notion-block ol {
+        padding-left: 1.5em;
+        margin: 0.5em 0;
+    }
+    
+    .notion-block code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+    
+    .notion-block pre {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin: 1em 0;
+    }
+    
+    .notion-block a {
+        color: #4a90e2;
+        text-decoration: none;
+    }
+    
+    .notion-block a:hover {
+        text-decoration: underline;
+        background-color: #f3f4f6;
+        border-radius: 3px;
+    }
+    
+    /* 双链样式 */
+    .notion-block a[href^="#"] {
+        color: #4f46e5;
+        padding: 2px 4px;
+        border-radius: 3px;
+        transition: all 0.2s;
+    }
+    
+    /* YAML元数据样式 */
+    .stExpander .streamlit-expanderContent {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    
+    .stExpander .streamlit-expanderContent code {
+        background: #eef2ff;
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+    
+    /* Notion侧边栏样式 */
+    .notion-sidebar {
+        background: #f8f9fa;
+        padding: 10px;
+        border-right: 1px solid #eee;
+        height: calc(100vh - 100px);
+        overflow-y: auto;
+    }
+    
+    .notion-sidebar .stButton > button {
+        text-align: left;
+        padding: 8px 15px;
+        margin: 2px 0;
+        border-radius: 6px;
+        transition: all 0.2s;
+        background: transparent;
+        border: none;
+        width: 100%;
+    }
+    
+    .notion-sidebar .stButton > button:hover {
+        background: #f1f3f5;
+    }
+    
+    .notion-sidebar .stButton > button:active {
+        background: #e9ecef;
+    }
+    
+    .notion-sidebar .stExpander {
+        margin: 5px 0;
+    }
+    
+    .notion-sidebar .stExpander > label {
+        font-weight: 600;
+        color: #37352f;
+        padding: 8px;
+    }
+</style>
 """, unsafe_allow_html=True)
 
 st.title("🎓 法考字幕转Obsidian笔记处理器")
@@ -645,7 +759,7 @@ else:
     st.sidebar.header("菜单")
     menu_choice = st.sidebar.radio(
         "选择功能",
-        ("处理新字幕文件", "直接输入AI格式文本", "增强现有笔记概念关系", "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射")
+        ("处理新字幕文件", "直接输入AI格式文本", "增强现有笔记概念关系", "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射", "查看笔记仓库")
     )
 
     if menu_choice == "处理新字幕文件":
@@ -917,6 +1031,92 @@ CONTENT:
         </div>
         """, unsafe_allow_html=True)
         processor.show_concept_database_status()
+
+    elif menu_choice == "查看笔记仓库":
+        st.header("📚 笔记仓库浏览器")
+        
+        # 使用columns创建左右分栏布局
+        col_sidebar, col_main = st.columns([1, 3])
+        
+        with col_sidebar:
+            st.markdown("""
+            <div class="notion-sidebar">
+                <div style='padding:10px;border-bottom:1px solid #eee;margin-bottom:15px;'>
+                    <h3 style='color:#37352f;margin:0;'>法考笔记仓库</h3>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # 获取所有科目
+            subjects = list(Config.SUBJECT_MAPPING.keys())
+            
+            # 创建科目导航
+            for subject in subjects:
+                with st.expander(f"📚 {subject}", expanded=False):
+                    notes = processor._collect_subject_notes_by_name(subject)
+                    if notes:
+                        for note in notes:
+                            # 使用单选框选择笔记
+                            if st.button(
+                                f"📄 {note['title']}",
+                                key=f"note_{note['title']}",
+                                use_container_width=True,
+                                type="secondary" if st.session_state.get('selected_note') != note['title'] else "primary"
+                            ):
+                                st.session_state.selected_note = note
+                    else:
+                        st.caption("该科目下暂无笔记")
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with col_main:
+            if 'selected_note' in st.session_state and st.session_state.selected_note:
+                selected_note = st.session_state.selected_note
+                st.markdown(f"### {selected_note['title']}")
+                st.markdown(f"*所属科目：{selected_note['subject']}*")
+                st.divider()
+                
+                # 解析YAML元数据
+                yaml_content = re.search(r'^---\n(.*?)\n---', selected_note['content'], re.DOTALL)
+                if yaml_content:
+                    try:
+                        yaml_data = yaml.safe_load(yaml_content.group(1))
+                        with st.expander("📌 元数据", expanded=True):
+                            cols = st.columns(2)
+                            for i, (k, v) in enumerate(yaml_data.items()):
+                                cols[i%2].write(f"**{k}**: `{v}`")
+                    except Exception as e:
+                        st.error(f"YAML解析错误: {e}")
+                
+                # 处理双链并渲染内容
+                processed_content = re.sub(
+                    r'\[\[(.*?\|.*?)\]\]', 
+                    lambda m: f'[{m.group(1).split("|")[0]}](#{m.group(1).split("|")[1]})', 
+                    selected_note['content']
+                )
+                processed_content = re.sub(
+                    r'\[\[(.*?)\]\]',
+                    lambda m: f'[{m.group(1)}](#{m.group(1)})',
+                    processed_content
+                )
+                
+                # 移除原始YAML部分
+                processed_content = re.sub(r'^---\n.*?\n---', '', processed_content, flags=re.DOTALL)
+                
+                # 显示处理后的内容
+                st.markdown(f"""
+                <div class="notion-style">
+                    <div class="notion-block">
+                        {processed_content}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 显示元数据
+                with st.expander("文件信息", expanded=False):
+                    st.write(f"文件路径：`{selected_note['file_path']}`")
+                    st.write(f"最后修改时间：{datetime.datetime.fromtimestamp(os.path.getmtime(selected_note['file_path'])).strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                st.info("👈 请在左侧选择科目并点击笔记进行查看")
 
     elif menu_choice == "科目文件夹映射":
         st.header("📚 科目文件夹映射")

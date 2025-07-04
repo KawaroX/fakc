@@ -51,7 +51,7 @@ class LawExamNoteProcessor:
             existing_concepts = self.concept_manager.get_all_concepts_for_ai()
             
             # 4. AI处理：一次性提取所有知识点 (使用字幕处理模型)
-            print("📂 AI正在分析字幕内容，提取知识点...")
+            print("🤖 AI正在分析字幕内容，提取知识点...")
             all_notes = self.subtitle_ai_processor.extract_all_knowledge_points(
                 subtitle_content, subtitle_info
             )
