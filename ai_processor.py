@@ -281,9 +281,9 @@ CONTENT:
 
 ## 相关概念
 
-- [[{metadata['subject']}】相关概念1/别名1]]
-- [[{metadata['subject']}】相关概念2/别名2]]
-- [[{metadata['subject']}】相关概念3/别名3]]
+- [[【{metadata['subject']}】相关概念1/别名1]]
+- [[【{metadata['subject']}】相关概念2/别名2]]
+- [[【{metadata['subject']}】相关概念3/别名3]]
 
 ---
 *视频时间段：[开始时间]-[结束时间]*（如果有时间戳）

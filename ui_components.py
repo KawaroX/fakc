@@ -16,38 +16,15 @@ def fix_material_icons_in_text(text: str) -> str:
     Returns:
         修复后的文本
     """
-    # Material Icons到emoji的映射
-    icon_mapping = {
-        'keyboard_double_arrow_left': '⏪',
-        'keyboard_double_arrow_right': '⏩',
-        'keyboard_arrow_left': '⬅️',
-        'keyboard_arrow_right': '➡️',
-        'keyboard_arrow_up': '⬆️',
-        'keyboard_arrow_down': '⬇️',
-        'play_arrow': '▶️',
-        'pause': '⏸️',
-        'stop': '⏹️',
-        'refresh': '🔄',
-        'home': '🏠',
-        'search': '🔍',
-        'settings': '⚙️',
-        'folder': '📁',
-        'file_present': '📄',
-        'save': '💾',
-        'delete': '🗑️',
-        'edit': '✏️',
-        'visibility': '👁️',
-        'check': '✅',
-        'close': '❌',
-        'warning': '⚠️',
-        'info': 'ℹ️',
-        'error': '❌',
-        'success': '✅'
-    }
-    
-    # 替换所有匹配的图标名称
-    for material_name, emoji in icon_mapping.items():
-        text = text.replace(material_name, emoji)
+    # Material Icons到emoji的映射 (仅保留非Material Icons的替换，或根据需要移除所有替换)
+    # 由于用户希望显示Material Icons，这里不再进行替换，而是依赖CSS加载
+    # 如果有其他非Material Icons的文本需要替换为emoji，可以在这里添加
+    # 例如：
+    # icon_mapping = {
+    #     'custom_icon_name': '✨'
+    # }
+    # for material_name, emoji in icon_mapping.items():
+    #     text = text.replace(material_name, emoji)
     
     return text
 
@@ -788,28 +765,28 @@ class UIConstants:
         'delete': '🗑️',
         'edit': '✏️',
         'view': '👁️',
-        'left_arrow': '⬅️',  # 替代 keyboard_double_arrow_left
-        'right_arrow': '➡️',  # 替代 keyboard_double_arrow_right
-        'double_left': '⏪',   # 双箭头左
-        'double_right': '⏩',  # 双箭头右
-        'up_arrow': '⬆️',
-        'down_arrow': '⬇️',
-        'play': '▶️',
-        'pause': '⏸️',
-        'stop': '⏹️',
-        'refresh': '🔄',
-        'home': '🏠',
-        'back': '↩️',
-        'forward': '↪️',
-        'check': '✓',
-        'cross': '✗',
-        'plus': '➕',
-        'minus': '➖',
-        'star': '⭐',
-        'heart': '❤️',
-        'fire': '🔥',
-        'thumbs_up': '👍',
-        'thumbs_down': '👎'
+        'left_arrow': 'keyboard_arrow_left',  # 使用Material Icons名称
+        'right_arrow': 'keyboard_arrow_right',  # 使用Material Icons名称
+        'double_left': 'keyboard_double_arrow_left',   # 使用Material Icons名称
+        'double_right': 'keyboard_double_arrow_right',  # 使用Material Icons名称
+        'up_arrow': 'keyboard_arrow_up',
+        'down_arrow': 'keyboard_arrow_down',
+        'play': 'play_arrow',
+        'pause': 'pause',
+        'stop': 'stop',
+        'refresh': 'refresh',
+        'home': 'home',
+        'back': 'arrow_back',
+        'forward': 'arrow_forward',
+        'check': 'check',
+        'cross': 'close',
+        'plus': 'add',
+        'minus': 'remove',
+        'star': 'star',
+        'heart': 'favorite',
+        'fire': 'local_fire_department',
+        'thumbs_up': 'thumb_up',
+        'thumbs_down': 'thumb_down'
     }
     
     # 颜色常量

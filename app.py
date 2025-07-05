@@ -497,7 +497,7 @@ else:
     # 侧边栏菜单
     with st.sidebar:
         st.markdown("## 功能菜单")
-        menu_choice = st.radio("", AppConstants.MENU_OPTIONS)
+        menu_choice = st.radio("选择功能", AppConstants.MENU_OPTIONS)
 
     # 主要的菜单处理逻辑
     if menu_choice == "处理新字幕文件":
@@ -602,6 +602,25 @@ else:
                 subjects, 
                 key="selected_subject_ai_text"
             )
+            
+            # 获取用户输入变量
+            input_vars = {
+                'subject': selected_subject,
+                'course_url': course_url,
+                'source': source_input
+            }
+            
+            # 生成带占位符的提示词模板
+            # 注意：这里我们创建一个临时的AIProcessor实例来访问_build_extraction_prompt方法
+            # 因为这个方法是实例方法，且我们只需要它的模板生成能力，不需要实际的API调用
+            temp_ai_processor = AIProcessor("DUMMY_API_KEY", "DUMMY_BASE_URL", "DUMMY_MODEL")
+            template = temp_ai_processor._build_extraction_prompt("YOUR_SUBTITLE_CONTENT_HERE", input_vars)
+            
+            if st.button("📝 生成提示词", use_container_width=True, key="generate_prompt_btn"):
+                st.code(template, language="text")
+                st.success("提示词已生成，可以直接复制!")
+            else:
+                st.info("需要提示词？填写上方信息后点击“生成提示词”按钮。")
         
         # 预览功能
         if ai_text.strip():
