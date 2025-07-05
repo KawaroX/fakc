@@ -7,10 +7,11 @@
 - AI增强笔记内容和概念关系
 - 管理笔记间的概念联系
 - 自动处理时间戳链接
+- 双链格式修复
 - 支持模型配置和切换
 
 作者：Your Name
-版本：2.0.0 (Notion Style)
+版本：2.1.0 (集成双链修复功能)
 """
 
 import datetime
@@ -35,6 +36,7 @@ from input_manager import InputManager
 from note_generator import ObsidianNoteGenerator
 from siliconflow_concept_enhancer import SiliconFlowConceptEnhancer
 from timestamp_linker import TimestampLinker
+from link_repairer import LinkRepairer  # 新增导入
 
 def extract_url_from_text(text: str) -> str:
     """
@@ -81,6 +83,7 @@ class StreamlitLawExamNoteProcessor:
         self.concept_manager = ConceptManager(Config.OBSIDIAN_VAULT_PATH)
         self.note_generator = ObsidianNoteGenerator("temp")
         self.timestamp_linker = TimestampLinker(Config.OBSIDIAN_VAULT_PATH)
+        self.link_repairer = LinkRepairer(Config.OBSIDIAN_VAULT_PATH)  # 新增双链修复器
         self.siliconflow_enhancer = None
 
     def _get_siliconflow_enhancer(self):
@@ -922,8 +925,8 @@ else:
         menu_choice = st.radio(
             "",
             ("处理新字幕文件", "直接输入AI格式文本", "增强现有笔记概念关系", 
-             "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射", 
-             "查看笔记仓库", "模型配置")
+             "时间戳链接化处理", "双链格式修复", "查看概念数据库状态", 
+             "科目文件夹映射", "查看笔记仓库", "模型配置")
         )
 
     if menu_choice == "模型配置":
@@ -1354,6 +1357,85 @@ CONTENT:
                 if result['total'] == 0:
                     st.warning("💡 提示：请确保笔记的YAML中包含course_url字段，例如：`course_url: \"https://www.bilibili.com/video/BV1xxx\"`")
                 st.success("时间戳链接化处理完成！")
+
+    elif menu_choice == "双链格式修复":
+        st.header("双链格式修复")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 自动修复笔记中不规范的双链格式
+            - 将无前缀链接转换为带科目前缀的标准格式
+            - 为带前缀但无显示别名的链接添加显示别名
+            - 支持查找和显示损坏的双链
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        repair_scope = st.radio(
+            "选择修复范围:",
+            ("修复所有科目的双链", "修复特定科目的双链", "查找损坏的双链")
+        )
+
+        if repair_scope == "修复所有科目的双链":
+            st.warning("⚠️ 这将修复所有笔记的双链格式，建议先备份重要数据")
+            
+            if st.button("开始修复所有双链", type="primary"):
+                with st.spinner("正在修复双链，请稍候..."):
+                    result = processor.link_repairer.repair_all_links()
+                    
+                    st.success("双链修复完成！")
+                    st.write(f"📊 修复统计:")
+                    st.write(f"  - 总计: {result['total']} 个笔记")
+                    st.write(f"  - 成功修复: {result['repaired']} 个")
+                    st.write(f"  - 无需修复: {result['unchanged']} 个")
+                    st.write(f"  - 修复失败: {result['failed']} 个")
+                    
+                    if result['repaired'] > 0:
+                        st.info("📚 正在更新概念数据库...")
+                        processor.concept_manager.scan_existing_notes()
+                        st.success("✅ 概念数据库已更新")
+
+        elif repair_scope == "修复特定科目的双链":
+            subjects_repair = list(Config.SUBJECT_MAPPING.keys())
+            selected_subject_repair = st.selectbox("选择要修复的科目", subjects_repair)
+            
+            st.warning(f"⚠️ 这将修复 {selected_subject_repair} 科目的所有双链格式")
+            
+            if st.button(f"开始修复 {selected_subject_repair} 双链", type="primary"):
+                with st.spinner("正在修复双链，请稍候..."):
+                    result = processor.link_repairer.repair_specific_subject(selected_subject_repair)
+                    
+                    st.success(f"{selected_subject_repair} 科目双链修复完成！")
+                    st.write(f"📊 修复统计:")
+                    st.write(f"  - 总计: {result['total']} 个笔记")
+                    st.write(f"  - 成功修复: {result['repaired']} 个")
+                    st.write(f"  - 无需修复: {result['unchanged']} 个")
+                    st.write(f"  - 修复失败: {result['failed']} 个")
+                    
+                    if result['repaired'] > 0:
+                        st.info("📚 正在更新概念数据库...")
+                        processor.concept_manager.scan_existing_notes()
+                        st.success("✅ 概念数据库已更新")
+
+        elif repair_scope == "查找损坏的双链":
+            if st.button("开始检查损坏双链"):
+                with st.spinner("正在检查损坏的双链..."):
+                    broken_links = processor.link_repairer.find_broken_links()
+                    
+                    if broken_links:
+                        st.error(f"❌ 发现 {len(broken_links)} 个损坏的双链")
+                        
+                        st.subheader("损坏的双链列表:")
+                        for i, link in enumerate(broken_links, 1):
+                            with st.expander(f"{i}. {link['file_title']} (行 {link['line_number']})"):
+                                st.write(f"**损坏链接**: `{link['broken_link']}`")
+                                st.write(f"**目标**: `{link['target']}`")
+                                st.write(f"**文件路径**: `{link['file_path']}`")
+                        
+                        st.info("💡 提示: 可以使用双链修复功能自动修复部分问题")
+                    else:
+                        st.success("✅ 没有发现损坏的双链")
 
     elif menu_choice == "查看概念数据库状态":
         st.header("概念数据库状态")
