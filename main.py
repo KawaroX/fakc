@@ -475,7 +475,7 @@ class LawExamNoteProcessor:
         print("📁 保存路径:", Config.OBSIDIAN_VAULT_PATH)
         print("="*60)
         print("1. 处理新字幕文件")
-        print("2. 增强现有笔记概念关系 (开发中)")
+        print("2. 增强现有笔记关系 (开发中)")
         print("3. 显示科目文件夹映射")
         print("4. 退出")
         print("="*60)
@@ -498,10 +498,10 @@ class LawExamNoteProcessor:
         print("📁 保存路径:", Config.OBSIDIAN_VAULT_PATH)
         print("="*60)
         print("1. 处理新字幕文件")
-        print("2. 增强现有笔记概念关系")  # 已完成开发
+        print("2. 增强现有笔记关系")  # 已完成开发
         print("3. 时间戳链接化处理")  # 新增功能
         print("4. 显示科目文件夹映射")
-        print("5. 查看概念数据库状态")  # 新增功能
+        print("5. 查看概念数据库")  # 新增功能
         print("6. 退出")
         print("="*60)
     
@@ -559,7 +559,7 @@ class LawExamNoteProcessor:
             print("❌ 请输入有效数字")
 
     def show_concept_database_status(self):
-        """查看概念数据库状态"""
+        """查看概念数据库"""
         print("\n📊 概念数据库状态")
         print("-" * 40)
         

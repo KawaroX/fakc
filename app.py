@@ -1,17 +1,14 @@
 """
-法考笔记处理系统 - Web界面 (完整重构版)
+法考笔记处理系统 - Web界面 (完整修复版)
 
-这是一个基于Streamlit的Web应用，用于将法考视频字幕转换为结构化的Obsidian笔记。
-主要功能包括：
-- 处理字幕文件并提取知识点
-- AI增强笔记内容和概念关系
-- 管理笔记间的概念联系
-- 自动处理时间戳链接
-- 双链格式修复
-- 支持模型配置和切换
+修复内容：
+1. 删除自定义header，使用Streamlit原生header
+2. 重新设计侧边栏按钮为Notion风格图标
+3. 在原生header中央添加应用标题
+4. 添加header阴影效果
 
 作者：FAKC Team
-版本：2.2.0 (完整重构版 - 样式和组件分离)
+版本：2.2.1 (Header修复版)
 """
 
 import datetime
@@ -29,7 +26,7 @@ import yaml
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 # 导入分离的模块
-from styles import get_notion_styles
+from styles import get_notion_styles  # 使用修复后的样式
 from ui_components import (
     render_feature_description, render_info_card, render_subject_selection,
     render_file_uploader, render_enhancement_method_selection, 
@@ -445,7 +442,7 @@ def save_model_configs(configs):
 # Streamlit页面配置
 st.set_page_config(**UIConfig.PAGE_CONFIG)
 
-# 注入样式
+# 注入修复后的样式 - 不再包含自定义header
 st.markdown(get_notion_styles(), unsafe_allow_html=True)
 
 # 初始化session state
@@ -496,15 +493,14 @@ else:
 
     # 侧边栏菜单
     with st.sidebar:
-        st.markdown("## 功能菜单")
-        menu_choice = st.radio("选择功能", AppConstants.MENU_OPTIONS)
+        menu_choice = st.radio("", AppConstants.MENU_OPTIONS)  # 移除标题，使用空字符串
 
     # 主要的菜单处理逻辑
-    if menu_choice == "处理新字幕文件":
+    if menu_choice == "📄 处理新字幕文件":
         st.header("处理新字幕文件")
         
         # 使用新的UI组件
-        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["处理新字幕文件"])
+        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["📄 处理新字幕文件"])
         
         # 文件上传
         uploaded_file = render_file_uploader(
@@ -558,10 +554,10 @@ else:
             else:
                 render_warning_box(AppConstants.ERROR_MESSAGES["no_file"])
 
-    elif menu_choice == "直接输入AI格式文本":
-        st.header("直接输入AI格式文本")
+    elif menu_choice == "✍️ 格式化文本直录":
+        st.header("格式化文本直录")
         
-        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["直接输入AI格式文本"])
+        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["✍️ 格式化文本直录"])
         
         # 显示格式示例
         with st.expander(UIConfig.EXPANDER_CONFIG["ai_format_example"]["title"], 
@@ -620,7 +616,7 @@ else:
                 st.code(template, language="text")
                 st.success("提示词已生成，可以直接复制!")
             else:
-                st.info("需要提示词？填写上方信息后点击“生成提示词”按钮。")
+                st.info("需要提示词？填写上方信息后点击\"生成提示词\"按钮。")
         
         # 预览功能
         if ai_text.strip():
@@ -652,10 +648,10 @@ else:
             if render_enhanced_button("🗑️ 清空内容", use_container_width=True):
                 st.rerun()
 
-    elif menu_choice == "增强现有笔记概念关系":
-        st.header("增强现有笔记概念关系")
+    elif menu_choice == "🔗 增强现有笔记关系":
+        st.header("增强现有笔记关系")
         
-        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["增强现有笔记概念关系"])
+        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["🔗 增强现有笔记关系"])
 
         if not processor.concept_manager.load_database_from_file():
             render_warning_box(AppConstants.WARNING_MESSAGES["no_database"])
@@ -709,10 +705,10 @@ else:
                     st.info("📚 重新扫描更新概念数据库...")
                     processor.concept_manager.scan_existing_notes()
 
-    elif menu_choice == "时间戳链接化处理":
+    elif menu_choice == "⏰ 时间戳链接化处理":
         st.header("时间戳链接化处理")
         
-        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["时间戳链接化处理"])
+        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["⏰ 时间戳链接化处理"])
 
         timestamp_scope = render_scope_selection("timestamp")
 
@@ -735,10 +731,10 @@ else:
                     render_warning_box(AppConstants.WARNING_MESSAGES["no_course_url"])
                 render_success_box(AppConstants.SUCCESS_MESSAGES["timestamp_converted"])
 
-    elif menu_choice == "双链格式修复":
+    elif menu_choice == "🔧 双链格式修复":
         st.header("双链格式修复")
         
-        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["双链格式修复"])
+        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["🔧 双链格式修复"])
 
         repair_scope = render_scope_selection("repair")
 
@@ -784,18 +780,18 @@ else:
                     broken_links = processor.link_repairer.find_broken_links()
                     render_broken_links_list(broken_links)
 
-    elif menu_choice == "查看概念数据库状态":
+    elif menu_choice == "📊 查看概念数据库":
         st.header("概念数据库状态")
         render_concept_database_status(processor.concept_manager, Config)
 
-    elif menu_choice == "科目文件夹映射":
+    elif menu_choice == "📁 科目文件夹映射":
         st.header("科目文件夹映射")
         render_subject_mapping(Config)
 
-    elif menu_choice == "查看笔记仓库":
+    elif menu_choice == "📚 查看笔记仓库":
         render_note_browser(processor, Config)
 
-    elif menu_choice == "模型配置":
+    elif menu_choice == "⚙️ 模型配置":
         st.header("⚙️ 模型配置")
         
         tabs = render_model_config_tabs()

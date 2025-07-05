@@ -1,15 +1,15 @@
 """
-样式文件 - 包含所有Streamlit应用的CSS样式
-完整版本，包含所有Notion风格样式和修复
+样式文件 - 修复版本，基于Streamlit原生header
+完全移除自定义header，重新设计原生header样式和侧边栏按钮
 """
 
 def get_notion_styles():
-    """返回Notion风格的完整CSS样式"""
+    """返回基于Streamlit原生header的Notion风格样式"""
     return """
 <style>
     /* Notion风格全局样式 */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    @import url('https://fonts.googleapis.com/icon?family=Material+Icons'); /* 导入Material Icons */
+    @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
     
     * {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
@@ -20,7 +20,7 @@ def get_notion_styles():
         font-family: 'Material Icons';
         font-weight: normal;
         font-style: normal;
-        font-size: 24px; /* Preferred icon size */
+        font-size: 18px;
         display: inline-block;
         line-height: 1;
         text-transform: none;
@@ -34,6 +34,199 @@ def get_notion_styles():
         font-feature-settings: 'liga';
     }
     
+    /* ===== 删除自定义header ===== */
+    .notion-header {
+        display: none !important;
+    }
+    
+    /* ===== 重新设计Streamlit原生header和工具栏 ===== */
+    header[data-testid="stHeader"] {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e9e9e7 !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+        height: 48px !important;
+        z-index: 1000 !important;
+    }
+    
+    /* Header工具栏样式 */
+    div[data-testid="stToolbar"] {
+        height: 48px !important;
+        padding: 0 16px !important;
+        position: relative !important;
+    }
+    
+    /* 修复透明工具栏容器 - 这是导致侧边栏空白的元素 */
+    .st-emotion-cache-1j22a0y.e4x2yc34 {
+        background: #ffffff !important;
+        height: 48px !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 999 !important;
+        border-bottom: 1px solid #e9e9e7 !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        padding: 0 16px !important;
+    }
+    
+    /* 工具栏左侧区域 */
+    .st-emotion-cache-70qvj9.e4x2yc35 {
+        display: flex !important;
+        align-items: center !important;
+        height: 100% !important;
+    }
+    
+    /* 工具栏右侧区域 */
+    .st-emotion-cache-scp8yw.e4x2yc36 {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        height: 100% !important;
+    }
+    
+    /* 在工具栏左侧添加应用标题 */
+    .st-emotion-cache-70qvj9.e4x2yc35::after {
+        content: "🎓 法考字幕转Obsidian笔记处理器";
+        font-size: 14px;
+        font-weight: 500;
+        color: #37352f;
+        margin-left: 16px;
+        white-space: nowrap;
+    }
+    
+    /* ===== 重新设计侧边栏按钮 ===== */
+    
+    /* 展开侧边栏时的按钮样式 */
+    button[data-testid="stExpandSidebarButton"] {
+        background: transparent !important;
+        border: none !important;
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 3px !important;
+        transition: all 0.2s ease !important;
+        position: relative !important;
+        margin-right: 8px !important;
+    }
+    
+    button[data-testid="stExpandSidebarButton"]:hover {
+        background: #f7f6f3 !important;
+    }
+    
+    button[data-testid="stExpandSidebarButton"]:active {
+        background: #eeedeb !important;
+    }
+    
+    /* 收起侧边栏时的按钮样式 */
+    button[data-testid="stBaseButton-headerNoPadding"] {
+        background: transparent !important;
+        border: none !important;
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 3px !important;
+        transition: all 0.2s ease !important;
+        position: relative !important;
+        margin-right: 8px !important;
+    }
+    
+    button[data-testid="stBaseButton-headerNoPadding"]:hover {
+        background: #f7f6f3 !important;
+    }
+    
+    button[data-testid="stBaseButton-headerNoPadding"]:active {
+        background: #eeedeb !important;
+    }
+    
+    /* 隐藏所有侧边栏按钮的原有内容 */
+    button[data-testid="stExpandSidebarButton"] span,
+    button[data-testid="stBaseButton-headerNoPadding"] span {
+        display: none !important;
+    }
+    
+    /* 隐藏原有的Material Icons */
+    button[data-testid="stExpandSidebarButton"] span[data-testid="stIconMaterial"],
+    button[data-testid="stBaseButton-headerNoPadding"] span[data-testid="stIconMaterial"] {
+        display: none !important;
+    }
+    
+    /* 展开状态时的汉堡菜单图标 */
+    button[data-testid="stExpandSidebarButton"]::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 18px;
+        height: 18px;
+        background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23787774' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='3' y1='6' x2='21' y2='6'%3E%3C/line%3E%3Cline x1='3' y1='12' x2='21' y2='12'%3E%3C/line%3E%3Cline x1='3' y1='18' x2='21' y2='18'%3E%3C/line%3E%3C/svg%3E") no-repeat center;
+        background-size: 18px 18px;
+        z-index: 10;
+    }
+    
+    /* 收起状态时的展开图标 */
+    button[data-testid="stBaseButton-headerNoPadding"]::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 18px;
+        height: 18px;
+        background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23787774' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6,9 12,15 18,9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat center;
+        background-size: 18px 18px;
+        z-index: 10;
+        transform: translate(-50%, -50%) rotate(-90deg);
+    }
+    
+    /* 右侧按钮区域样式调整 */
+    div[data-testid="stToolbarActions"] {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }
+    
+    /* Deploy按钮样式 */
+    div[data-testid="stAppDeployButton"] button {
+        background: transparent !important;
+        border: 1px solid #e9e9e7 !important;
+        border-radius: 3px !important;
+        color: #37352f !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        padding: 4px 8px !important;
+        height: 28px !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    div[data-testid="stAppDeployButton"] button:hover {
+        background: #f7f6f3 !important;
+        border-color: #d9d9d7 !important;
+    }
+    
+    /* 主菜单按钮样式 */
+    span[data-testid="stMainMenu"] button {
+        background: transparent !important;
+        border: none !important;
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 3px !important;
+        transition: background 0.2s ease !important;
+    }
+    
+    span[data-testid="stMainMenu"] button:hover {
+        background: #f7f6f3 !important;
+    }
+    
+    span[data-testid="stMainMenu"] button svg {
+        color: #787774 !important;
+        width: 18px !important;
+        height: 18px !important;
+    }
+    
+    /* ===== 全局样式 ===== */
+    
     /* 背景色 */
     .stApp {
         background: #ffffff;
@@ -41,82 +234,65 @@ def get_notion_styles():
     
     .main {
         background: #ffffff;
-        padding: 0;
+        padding-top: 48px !important; /* 为header留出空间 */
     }
     
-    /* 顶部标题栏 - 修复遮挡问题 */
-    .notion-header {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 48px;
-        background: #ffffff;
-        border-bottom: 1px solid #e9e9e7;
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        padding: 0 24px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    
-    .notion-header h1 {
-        font-size: 14px;
-        font-weight: 500;
-        color: #37352f;
-        margin: 0;
-    }
-    
-    /* 修复Streamlit默认标题的显示问题 */
-    .main .element-container:has(h1) {
-        padding-top: 20px;
-        position: relative;
-        z-index: 1;
-    }
-    
-    /* 确保页面标题可见 */
-    .main h1 {
-        position: relative;
-        z-index: 2;
-        background: #ffffff;
-        padding: 10px 0;
-        margin-top: 0 !important;
-    }
-    
-    /* 修复被遮挡的标题链接 */
-    .main h1 a {
-        color: inherit;
-        text-decoration: none;
-    }
-    
-    .main h1 span[data-testid="stHeaderActionElements"] {
-        position: relative;
-        z-index: 3;
-    }
-    
-    /* 侧边栏样式 */
+    /* 侧边栏样式 - 修复定位问题 */
     section[data-testid="stSidebar"] {
         background: #f7f6f3;
         border-right: 1px solid #e9e9e7;
-        padding-top: 48px;
+        top: 48px !important; /* 紧贴修复后的header */
+        height: calc(100vh - 48px) !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-sizing: border-box !important;
+        z-index: 998 !important; /* 确保在header下方 */
     }
     
+    /* 侧边栏的第一层子容器 */
     section[data-testid="stSidebar"] > div {
-        padding: 8px 0;
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100% !important;
+        box-sizing: border-box !important;
+    }
+    
+    /* 侧边栏的所有子容器 */
+    section[data-testid="stSidebar"] * {
+        box-sizing: border-box !important;
+    }
+    
+    /* 移除可能的顶部间距 */
+    section[data-testid="stSidebar"] .stBlock:first-child {
+        margin-top: 0 !important;
+        padding-top: 8px !important; /* 给第一个元素一点顶部间距 */
+    }
+    
+    /* 移除任何可能的伪元素 */
+    section[data-testid="stSidebar"]::before,
+    section[data-testid="stSidebar"]::after {
+        display: none !important;
+    }
+    
+    /* 深度重置所有可能的容器 */
+    section[data-testid="stSidebar"] .css-1d391kg,
+    section[data-testid="stSidebar"] .stVerticalBlock,
+    section[data-testid="stSidebar"] .element-container {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    
+    /* 特殊处理：Streamlit可能的隐藏元素 */
+    section[data-testid="stSidebar"] div[data-testid*="stVerticalBlock"]:first-child {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
     }
     
     /* 主内容区域 */
     .main > div {
-        padding-top: 80px;  /* 增加顶部padding，避免被header遮挡 */
+        padding-top: 20px !important;
         max-width: 900px;
         margin: 0 auto;
-    }
-    
-    /* 确保页面标题不被遮挡 */
-    .main h1:first-of-type {
-        margin-top: 20px;
-        position: relative;
-        z-index: 1;
     }
     
     /* 标题样式 */
@@ -126,11 +302,14 @@ def get_notion_styles():
         letter-spacing: -0.01em;
     }
     
-    h1 { font-size: 40px; margin: 32px 0 8px 0; }
+    h1 { 
+        font-size: 40px; 
+        margin: 0 0 8px 0 !important; /* 移除顶部margin */
+    }
     h2 { font-size: 24px; margin: 24px 0 8px 0; }
     h3 { font-size: 20px; margin: 16px 0 8px 0; }
     
-    /* 卡片容器 - 修复内容在框内的问题 */
+    /* 卡片容器 */
     .notion-card {
         background: #ffffff;
         border: 1px solid #e9e9e7;
@@ -176,11 +355,6 @@ def get_notion_styles():
         color: #37352f;
         line-height: 1.5;
         font-size: 14px;
-    }
-    
-    /* 修复Streamlit生成的空div */
-    .notion-card + div[data-testid="stMarkdownContainer"] {
-        display: none;
     }
     
     /* 输入框样式 */
@@ -319,31 +493,126 @@ def get_notion_styles():
         background: #e9e9e7;
     }
     
-    /* 侧边栏菜单 */
-    .css-1d391kg {
-        padding: 12px;
+    /* 侧边栏菜单容器 */
+    section[data-testid="stSidebar"] .css-1d391kg {
+        padding: 8px !important;
     }
     
-    /* Radio按钮组 */
-    .stRadio > div {
-        gap: 4px;
+    /* 侧边栏整体容器 */
+    section[data-testid="stSidebar"] .stBlock {
+        padding: 0 !important;
+        margin: 0 !important;
     }
     
-    .stRadio > div > label {
-        background: #ffffff;
-        border: 1px solid #e9e9e7;
-        border-radius: 3px;
-        padding: 8px 12px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-        color: #37352f;
-        margin: 4px 0;
-        transition: all 0.2s ease;
+    /* 侧边栏元素容器 */
+    section[data-testid="stSidebar"] .element-container {
+        margin: 0 !important;
+        padding: 0 !important;
     }
     
-    .stRadio > div > label:hover {
-        background: #f7f6f3;
+    /* ===== Notion风格的侧边栏Radio按钮 ===== */
+    
+    /* 隐藏"功能菜单"标题 */
+    section[data-testid="stSidebar"] h2 {
+        display: none !important;
+    }
+    
+    /* 侧边栏菜单容器 */
+    section[data-testid="stSidebar"] .stRadio {
+        margin: 0 !important;
+        padding: 8px !important;
+    }
+    
+    /* Radio按钮组容器 */
+    section[data-testid="stSidebar"] .stRadio > div {
+        gap: 0 !important;
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+    }
+    
+    /* 完全隐藏原有的radio圆圈和相关元素 */
+    section[data-testid="stSidebar"] .stRadio input[type="radio"] {
+        display: none !important;
+    }
+    
+    /* 隐藏所有圆圈选择器相关的div */
+    section[data-testid="stSidebar"] .stRadio div[class*="st-au"],
+    section[data-testid="stSidebar"] .stRadio div[class*="st-bx"],
+    section[data-testid="stSidebar"] .stRadio div[class*="st-e1"],
+    section[data-testid="stSidebar"] .stRadio div[class*="st-c0"],
+    section[data-testid="stSidebar"] .stRadio > div > label > div:first-child {
+        display: none !important;
+    }
+    
+    /* 通用隐藏：所有可能的圆圈容器 */
+    section[data-testid="stSidebar"] .stRadio [class*="st-au"][class*="st-bx"],
+    section[data-testid="stSidebar"] .stRadio [class*="st-e1"][class*="st-c0"] {
+        display: none !important;
+    }
+    
+    /* Radio标签样式 - Notion风格 */
+    section[data-testid="stSidebar"] .stRadio > div > label {
+        background: transparent !important;
+        border: none !important;
+        border-radius: 4px !important;
+        padding: 8px 12px !important;
+        margin: 1px 0 !important;
+        cursor: pointer !important;
+        font-size: 14px !important;
+        font-weight: 400 !important;
+        color: #37352f !important;
+        transition: all 0.15s ease !important;
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        text-align: left !important;
+        min-height: 36px !important;
+        line-height: 1.2 !important;
+        position: relative !important;
+    }
+    
+    /* 确保label内容正确显示 */
+    section[data-testid="stSidebar"] .stRadio > div > label > div:last-child {
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        margin-left: 0 !important;
+    }
+    
+    /* Hover状态 */
+    section[data-testid="stSidebar"] .stRadio > div > label:hover {
+        background: rgba(55, 53, 47, 0.08) !important;
+        color: #37352f !important;
+    }
+    
+    /* 选中状态 */
+    section[data-testid="stSidebar"] .stRadio input[type="radio"]:checked + label,
+    section[data-testid="stSidebar"] .stRadio > div > label[data-checked="true"] {
+        background: rgba(35, 131, 226, 0.1) !important;
+        color: #2383e2 !important;
+        border: 1px solid rgba(35, 131, 226, 0.3) !important;
+        font-weight: 500 !important;
+    }
+    
+    /* 选中状态的hover */
+    section[data-testid="stSidebar"] .stRadio input[type="radio"]:checked + label:hover,
+    section[data-testid="stSidebar"] .stRadio > div > label[data-checked="true"]:hover {
+        background: rgba(35, 131, 226, 0.15) !important;
+        border-color: rgba(35, 131, 226, 0.4) !important;
+    }
+    
+    /* 活动状态 */
+    section[data-testid="stSidebar"] .stRadio > div > label:active {
+        background: rgba(55, 53, 47, 0.12) !important;
+        transform: scale(0.98) !important;
+    }
+    
+    /* 移除label的before和after伪元素（如果有的话） */
+    section[data-testid="stSidebar"] .stRadio > div > label::before,
+    section[data-testid="stSidebar"] .stRadio > div > label::after {
+        display: none !important;
     }
     
     /* Checkbox */
@@ -422,48 +691,28 @@ def get_notion_styles():
     
     /* 响应式调整 */
     @media (max-width: 768px) {
-        .main > div {
-            padding-top: 60px;  /* 移动端减少padding */
+        /* 移动端工具栏标题调整 */
+        .st-emotion-cache-70qvj9.e4x2yc35::after {
+            font-size: 12px;
+            margin-left: 8px;
         }
         
-        section[data-testid="stSidebar"] {
-            padding-top: 48px;
+        /* 移动端工具栏容器调整 */
+        .st-emotion-cache-1j22a0y.e4x2yc34 {
+            padding: 0 12px !important;
         }
         
-        .notion-header {
-            padding: 0 16px;  /* 移动端减少padding */
+        /* 移动端侧边栏按钮调整 */
+        button[data-testid="stExpandSidebarButton"],
+        button[data-testid="stBaseButton-headerNoPadding"] {
+            width: 28px !important;
+            height: 28px !important;
         }
         
-        .notion-header h1 {
-            font-size: 12px;  /* 移动端减小字体 */
+        /* 移动端主内容调整 */
+        .main {
+            padding-top: 48px !important;
         }
-    }
-    
-    /* 特殊修复：确保页面标题总是可见 */
-    .main > div > div:first-child h1 {
-        position: relative !important;
-        z-index: 10 !important;
-        background: rgba(255, 255, 255, 0.95) !important;
-        backdrop-filter: blur(10px);
-        padding: 15px 0 !important;
-        margin-top: 0 !important;
-        border-radius: 6px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* 修复特定的Streamlit组件问题 */
-    .element-container {
-        width: 100% !important;
-    }
-    
-    /* 确保容器内的内容正确显示 */
-    div[data-testid="stVerticalBlock"] {
-        width: 100%;
-    }
-    
-    /* 修复markdown容器问题 */
-    div[data-testid="stMarkdownContainer"] {
-        width: 100%;
     }
     
     /* 笔记仓库浏览器样式 */
@@ -588,11 +837,6 @@ def get_notion_styles():
         opacity: 1;
     }
 </style>
-
-<!-- 顶部标题栏 -->
-<div class="notion-header">
-    <h1>🎓 法考字幕转Obsidian笔记处理器</h1>
-</div>
 """
 
 def get_custom_css(additional_styles=""):
@@ -625,6 +869,15 @@ def apply_dark_theme():
         background: #1a1a1a !important;
     }
     
+    header[data-testid="stHeader"] {
+        background: #2d2d2d !important;
+        border-bottom-color: #404040 !important;
+    }
+    
+    div[data-testid="stToolbar"]::before {
+        color: #ffffff !important;
+    }
+    
     .notion-card {
         background: #2d2d2d !important;
         border-color: #404040 !important;
@@ -637,15 +890,6 @@ def apply_dark_theme():
     }
     
     h1, h2, h3, h4, h5, h6 {
-        color: #ffffff !important;
-    }
-    
-    .notion-header {
-        background: #2d2d2d !important;
-        border-bottom-color: #404040 !important;
-    }
-    
-    .notion-header h1 {
         color: #ffffff !important;
     }
     
