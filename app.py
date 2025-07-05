@@ -1,5 +1,5 @@
 """
-法考笔记处理系统 - Web界面
+法考笔记处理系统 - Web界面 (Notion风格版)
 
 这是一个基于Streamlit的Web应用，用于将法考视频字幕转换为结构化的Obsidian笔记。
 主要功能包括：
@@ -7,9 +7,10 @@
 - AI增强笔记内容和概念关系
 - 管理笔记间的概念联系
 - 自动处理时间戳链接
+- 支持模型配置和切换
 
 作者：Your Name
-版本：1.0.0
+版本：2.0.0 (Notion Style)
 """
 
 import datetime
@@ -17,6 +18,7 @@ import importlib
 import os
 import re
 import sys
+import json
 from typing import Dict, List, Optional, Union
 
 import streamlit as st
@@ -500,234 +502,393 @@ class StreamlitLawExamNoteProcessor:
             st.write(f"  {exists_icon} **{subject}** -> `{folder}`")
         st.markdown("---")
 
+# 模型配置缓存文件路径
+MODEL_CONFIG_CACHE_PATH = os.path.join(os.path.dirname(__file__), '.model_configs_cache.json')
 
-# Streamlit UI
+def load_model_configs():
+    """加载缓存的模型配置"""
+    if os.path.exists(MODEL_CONFIG_CACHE_PATH):
+        try:
+            with open(MODEL_CONFIG_CACHE_PATH, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_model_configs(configs):
+    """保存模型配置到缓存"""
+    try:
+        with open(MODEL_CONFIG_CACHE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(configs, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"保存模型配置失败: {e}")
+
+# Streamlit UI - Notion Style
 st.set_page_config(
     page_title="法考字幕转Obsidian笔记处理器",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 注入自定义CSS
+# 注入Notion风格CSS
 st.markdown("""
 <style>
-    /* 整体样式调整 */
+    /* Notion风格全局样式 */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    * {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+    }
+    
+    /* 背景色 */
     .stApp {
+        background: #ffffff;
+    }
+    
+    .main {
+        background: #ffffff;
+        padding: 0;
+    }
+    
+    /* 顶部标题栏 */
+    .notion-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 48px;
+        background: #ffffff;
+        border-bottom: 1px solid #e9e9e7;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+    }
+    
+    .notion-header h1 {
+        font-size: 14px;
+        font-weight: 500;
+        color: #37352f;
+        margin: 0;
+    }
+    
+    /* 侧边栏样式 */
+    section[data-testid="stSidebar"] {
+        background: #f7f6f3;
+        border-right: 1px solid #e9e9e7;
+        padding-top: 48px;
+    }
+    
+    section[data-testid="stSidebar"] > div {
+        padding: 8px 0;
+    }
+    
+    /* 主内容区域 */
+    .main > div {
+        padding-top: 64px;
+        max-width: 900px;
         margin: 0 auto;
     }
     
-    /* 标题美化 */
-    h1 {
-        color: #1E3A8A;
-        padding: 20px 0;
-        text-align: center;
+    /* 标题样式 */
+    h1, h2, h3, h4, h5, h6 {
+        color: #37352f;
         font-weight: 600;
-        background: linear-gradient(90deg, #4A90E2 0%, #805AD5 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 30px !important;
+        letter-spacing: -0.01em;
     }
     
-    /* 子标题美化 */
-    h2, h3 {
-        color: #2C5282;
-        margin: 20px 0 !important;
+    h1 { font-size: 40px; margin: 32px 0 8px 0; }
+    h2 { font-size: 24px; margin: 24px 0 8px 0; }
+    h3 { font-size: 20px; margin: 16px 0 8px 0; }
+    
+    /* 卡片容器 */
+    .notion-card {
+        background: #ffffff;
+        border: 1px solid #e9e9e7;
+        border-radius: 3px;
+        padding: 16px;
+        margin: 8px 0;
+        transition: box-shadow 0.2s ease;
     }
     
-    /* 按钮样式优化 */
-    .stButton button {
-        width: 100%;
-        border-radius: 10px;
+    .notion-card:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    
+    /* 输入框样式 */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div > div {
+        background: #f7f6f3;
+        border: none;
+        border-radius: 3px;
+        padding: 8px 12px;
+        font-size: 14px;
+        color: #37352f;
+        transition: background 0.2s ease;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        background: #ffffff;
+        box-shadow: 0 0 0 2px #e9e9e7;
+        outline: none;
+    }
+    
+    /* 按钮样式 */
+    .stButton > button {
+        background: #ffffff;
+        border: 1px solid #e9e9e7;
+        border-radius: 3px;
+        color: #37352f;
+        font-size: 14px;
         font-weight: 500;
-        padding: 10px 24px;
-        transition: all 0.3s ease;
-    }
-    .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        padding: 4px 12px;
+        height: 32px;
+        transition: all 0.2s ease;
     }
     
-    /* 输入框美化 */
-    .stTextInput input, .stTextArea textarea {
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
-        padding: 10px;
-    }
-    .stTextInput input:focus, .stTextArea textarea:focus {
-        border-color: #4A90E2;
-        box-shadow: 0 0 0 2px rgba(74,144,226,0.2);
+    .stButton > button:hover {
+        background: #f7f6f3;
+        border-color: #d9d9d7;
     }
     
-    /* 选择框美化 */
-    .stSelectbox {
-        border-radius: 8px;
+    .stButton > button:active {
+        background: #eeedeb;
     }
     
-    /* 分割线美化 */
+    /* Primary按钮 */
+    .stButton > button[kind="primary"] {
+        background: #2383e2;
+        border-color: #2383e2;
+        color: #ffffff;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background: #0b7bc7;
+        border-color: #0b7bc7;
+    }
+    
+    /* 文件上传器 */
+    .uploadedFile {
+        background: #f7f6f3;
+        border: 2px dashed #e9e9e7;
+        border-radius: 3px;
+        padding: 24px;
+        text-align: center;
+    }
+    
+    section[data-testid="stFileUploadDropzone"] {
+        background: #f7f6f3;
+        border: 2px dashed #e9e9e7;
+        border-radius: 3px;
+    }
+    
+    section[data-testid="stFileUploadDropzone"]:hover {
+        background: #ffffff;
+        border-color: #d9d9d7;
+    }
+    
+    /* 进度条 */
+    .stProgress > div > div > div {
+        background: #2383e2;
+        border-radius: 2px;
+    }
+    
+    .stProgress > div > div {
+        background: #f7f6f3;
+        border-radius: 2px;
+    }
+    
+    /* 信息框 */
+    .stAlert {
+        background: #f7f6f3;
+        border: none;
+        border-radius: 3px;
+        color: #37352f;
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+    
+    div[data-baseweb="notification"] {
+        border-radius: 3px;
+    }
+    
+    /* 展开器 */
+    .streamlit-expanderHeader {
+        background: #f7f6f3;
+        border: none;
+        border-radius: 3px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #37352f;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        background: #eeedeb;
+    }
+    
+    .streamlit-expanderContent {
+        border: none;
+        background: #ffffff;
+        border: 1px solid #e9e9e7;
+        border-top: none;
+        border-radius: 0 0 3px 3px;
+    }
+    
+    /* 代码块 */
+    .stCodeBlock {
+        background: #f7f6f3;
+        border: 1px solid #e9e9e7;
+        border-radius: 3px;
+    }
+    
+    /* 分割线 */
     hr {
-        margin: 30px 0;
+        margin: 16px 0;
         border: none;
         height: 1px;
-        background: linear-gradient(90deg, rgba(74,144,226,0) 0%, rgba(74,144,226,0.5) 50%, rgba(74,144,226,0) 100%);
+        background: #e9e9e7;
     }
     
-    /* 文件上传区域美化 */
-    .uploadedFile {
-        border: 2px dashed #4A90E2;
-        border-radius: 10px;
-        padding: 20px;
-        text-align: center;
-        background: rgba(74,144,226,0.05);
-    }
-    
-    /* 侧边栏美化 */
+    /* 侧边栏菜单 */
     .css-1d391kg {
-        padding: 2rem 1rem;
+        padding: 12px;
     }
     
-    /* 进度条美化 */
-    .stProgress > div > div > div {
-        background-color: #4A90E2;
+    /* Radio按钮组 */
+    .stRadio > div {
+        gap: 4px;
     }
     
-    /* 信息框美化 */
-    .stAlert {
-        border-radius: 10px;
+    .stRadio > div > label {
+        background: #ffffff;
+        border: 1px solid #e9e9e7;
+        border-radius: 3px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: #37352f;
+        margin: 4px 0;
+        transition: all 0.2s ease;
+    }
+    
+    .stRadio > div > label:hover {
+        background: #f7f6f3;
+    }
+    
+    /* Checkbox */
+    .stCheckbox {
+        font-size: 14px;
+        color: #37352f;
+    }
+    
+    /* Tabs样式 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        background: #f7f6f3;
+        padding: 4px;
+        border-radius: 3px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
         border: none;
+        color: #787774;
+        font-size: 14px;
+        font-weight: 500;
+        padding: 4px 12px;
+        border-radius: 3px;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background: #ffffff;
+        color: #37352f;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: #ffffff;
+        color: #37352f;
+    }
+    
+    /* 度量指标 */
+    div[data-testid="metric-container"] {
+        background: #f7f6f3;
+        border: 1px solid #e9e9e7;
+        border-radius: 3px;
         padding: 16px;
     }
     
-    /* 展开框美化 */
-    .streamlit-expanderHeader {
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
-        background: #F8FAFC;
+    /* 移除Streamlit默认样式 */
+    .css-18e3th9 {
+        padding-top: 0;
     }
     
-    /* 代码框美化 */
-    .stCodeBlock {
-        border-radius: 10px;
-        border: 1px solid #E2E8F0;
+    footer {
+        display: none;
+    }
+    
+    .viewerBadge_container__1QSob {
+        display: none;
+    }
+    
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #d9d9d7;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #a9a9a7;
+    }
+    
+    /* 响应式调整 */
+    @media (max-width: 768px) {
+        .main > div {
+            padding-top: 48px;
+        }
+        
+        section[data-testid="stSidebar"] {
+            padding-top: 48px;
+        }
     }
 </style>
 
-<style>
-    /* Notion风格增强 */
-    .notion-style {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        line-height: 1.6;
-        color: #37352f;
-    }
-    
-    .notion-block {
-        background: #fff;
-        border-radius: 8px;
-        padding: 20px;
-        margin: 10px 0;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        border: 1px solid #eee;
-    }
-    
-    .notion-block h1, .notion-block h2, .notion-block h3 {
-        color: #37352f;
-        margin: 1.2em 0 0.6em;
-    }
-    
-    .notion-block ul, .notion-block ol {
-        padding-left: 1.5em;
-        margin: 0.5em 0;
-    }
-    
-    .notion-block code {
-        background: #f3f4f6;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
-    }
-    
-    .notion-block pre {
-        background: #f8f9fa;
-        padding: 15px;
-        border-radius: 8px;
-        overflow-x: auto;
-        margin: 1em 0;
-    }
-    
-    .notion-block a {
-        color: #4a90e2;
-        text-decoration: none;
-    }
-    
-    .notion-block a:hover {
-        text-decoration: underline;
-        background-color: #f3f4f6;
-        border-radius: 3px;
-    }
-    
-    /* 双链样式 */
-    .notion-block a[href^="#"] {
-        color: #4f46e5;
-        padding: 2px 4px;
-        border-radius: 3px;
-        transition: all 0.2s;
-    }
-    
-    /* YAML元数据样式 */
-    .stExpander .streamlit-expanderContent {
-        background: #f8f9fa;
-        border-radius: 8px;
-        padding: 15px;
-        margin: 10px 0;
-    }
-    
-    .stExpander .streamlit-expanderContent code {
-        background: #eef2ff;
-        padding: 2px 6px;
-        border-radius: 4px;
-    }
-    
-    /* Notion侧边栏样式 */
-    .notion-sidebar {
-        background: #f8f9fa;
-        padding: 10px;
-        border-right: 1px solid #eee;
-        height: calc(100vh - 100px);
-        overflow-y: auto;
-    }
-    
-    .notion-sidebar .stButton > button {
-        text-align: left;
-        padding: 8px 15px;
-        margin: 2px 0;
-        border-radius: 6px;
-        transition: all 0.2s;
-        background: transparent;
-        border: none;
-        width: 100%;
-    }
-    
-    .notion-sidebar .stButton > button:hover {
-        background: #f1f3f5;
-    }
-    
-    .notion-sidebar .stButton > button:active {
-        background: #e9ecef;
-    }
-    
-    .notion-sidebar .stExpander {
-        margin: 5px 0;
-    }
-    
-    .notion-sidebar .stExpander > label {
-        font-weight: 600;
-        color: #37352f;
-        padding: 8px;
-    }
-</style>
+<!-- 顶部标题栏 -->
+<div class="notion-header">
+    <h1>🎓 法考字幕转Obsidian笔记处理器</h1>
+</div>
 """, unsafe_allow_html=True)
 
-st.title("🎓 法考字幕转Obsidian笔记处理器")
-st.markdown("<br>", unsafe_allow_html=True)
+# 初始化session state
+if 'model_configs' not in st.session_state:
+    st.session_state.model_configs = load_model_configs()
+
+if 'current_subtitle_config' not in st.session_state:
+    st.session_state.current_subtitle_config = {
+        'name': 'Default',
+        'api_key': Config.SUBTITLE_PROCESSING_API_KEY or '',
+        'base_url': Config.SUBTITLE_PROCESSING_BASE_URL or '',
+        'model': Config.SUBTITLE_PROCESSING_MODEL or ''
+    }
+
+if 'current_concept_config' not in st.session_state:
+    st.session_state.current_concept_config = {
+        'name': 'Default',
+        'api_key': Config.CONCEPT_ENHANCEMENT_API_KEY or '',
+        'base_url': Config.CONCEPT_ENHANCEMENT_BASE_URL or '',
+        'model': Config.CONCEPT_ENHANCEMENT_MODEL or ''
+    }
 
 # 检查并处理缺失的环境变量
 missing_env_vars = Config.check_and_get_missing_env()
@@ -756,27 +917,203 @@ else:
     Config.ensure_directories()
 
     # 侧边栏菜单
-    st.sidebar.header("菜单")
-    menu_choice = st.sidebar.radio(
-        "选择功能",
-        ("处理新字幕文件", "直接输入AI格式文本", "增强现有笔记概念关系", "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射", "查看笔记仓库")
-    )
+    with st.sidebar:
+        st.markdown("## 功能菜单")
+        menu_choice = st.radio(
+            "",
+            ("处理新字幕文件", "直接输入AI格式文本", "增强现有笔记概念关系", 
+             "时间戳链接化处理", "查看概念数据库状态", "科目文件夹映射", 
+             "查看笔记仓库", "模型配置")
+        )
 
-    if menu_choice == "处理新字幕文件":
-        st.header("📝 处理新字幕文件")
-        st.markdown("""
-        <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
-            <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
-            <ul style='margin: 0;'>
-                <li>支持多种字幕文件格式：.lrc, .srt, .vtt, .txt, .ass, .bcc</li>
-                <li>AI自动提取知识点，生成结构化笔记</li>
-                <li>自动增强概念关系，建立知识网络</li>
-                <li>支持时间戳链接，方便回看视频原文</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    if menu_choice == "模型配置":
+        st.header("⚙️ 模型配置")
         
-        uploaded_file = st.file_uploader("上传字幕文件 (.lrc, .srt, .vtt, .txt, .ass, .bcc)", type=["lrc", "srt", "vtt", "txt", "ass", "bcc"])
+        tabs = st.tabs(["字幕处理模型", "概念增强模型"])
+        
+        with tabs[0]:
+            st.markdown("### 字幕处理模型配置")
+            
+            # 显示当前配置
+            st.info(f"当前使用: {st.session_state.current_subtitle_config['name']}")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                # 选择已保存的配置
+                saved_configs = list(st.session_state.model_configs.get('subtitle', {}).keys())
+                if saved_configs:
+                    selected_config = st.selectbox(
+                        "选择已保存的配置",
+                        ["新建配置"] + saved_configs,
+                        key="subtitle_config_select"
+                    )
+                else:
+                    selected_config = "新建配置"
+            
+            # 配置表单
+            with st.form("subtitle_model_form"):
+                if selected_config != "新建配置" and selected_config in st.session_state.model_configs.get('subtitle', {}):
+                    config = st.session_state.model_configs['subtitle'][selected_config]
+                    config_name = st.text_input("配置名称", value=selected_config)
+                    api_key = st.text_input("API Key", value=config['api_key'], type="password")
+                    base_url = st.text_input("Base URL", value=config['base_url'])
+                    model = st.text_input("Model", value=config['model'])
+                else:
+                    config_name = st.text_input("配置名称", value="")
+                    api_key = st.text_input("API Key", value="", type="password")
+                    base_url = st.text_input("Base URL", value="https://openrouter.ai/api/v1")
+                    model = st.text_input("Model", value="deepseek/deepseek-r1-0528:free")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    save_btn = st.form_submit_button("保存配置", use_container_width=True)
+                with col2:
+                    use_btn = st.form_submit_button("使用此配置", type="primary", use_container_width=True)
+                with col3:
+                    if selected_config != "新建配置":
+                        delete_btn = st.form_submit_button("删除配置", use_container_width=True)
+                    else:
+                        delete_btn = False
+                
+                if save_btn:
+                    if config_name and api_key and base_url and model:
+                        if 'subtitle' not in st.session_state.model_configs:
+                            st.session_state.model_configs['subtitle'] = {}
+                        st.session_state.model_configs['subtitle'][config_name] = {
+                            'api_key': api_key,
+                            'base_url': base_url,
+                            'model': model
+                        }
+                        save_model_configs(st.session_state.model_configs)
+                        st.success(f"✅ 配置 '{config_name}' 已保存")
+                        st.rerun()
+                    else:
+                        st.error("请填写所有字段")
+                
+                if use_btn:
+                    if api_key and base_url and model:
+                        # 更新当前配置
+                        st.session_state.current_subtitle_config = {
+                            'name': config_name or '临时配置',
+                            'api_key': api_key,
+                            'base_url': base_url,
+                            'model': model
+                        }
+                        # 更新Config和处理器
+                        Config.SUBTITLE_PROCESSING_API_KEY = api_key
+                        Config.SUBTITLE_PROCESSING_BASE_URL = base_url
+                        Config.SUBTITLE_PROCESSING_MODEL = model
+                        processor.subtitle_ai_processor = AIProcessor(api_key, base_url, model)
+                        st.success(f"✅ 已切换到配置: {config_name or '临时配置'}")
+                    else:
+                        st.error("请填写所有字段")
+                
+                if delete_btn:
+                    if selected_config in st.session_state.model_configs.get('subtitle', {}):
+                        del st.session_state.model_configs['subtitle'][selected_config]
+                        save_model_configs(st.session_state.model_configs)
+                        st.success(f"✅ 配置 '{selected_config}' 已删除")
+                        st.rerun()
+        
+        with tabs[1]:
+            st.markdown("### 概念增强模型配置")
+            
+            # 显示当前配置
+            st.info(f"当前使用: {st.session_state.current_concept_config['name']}")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                # 选择已保存的配置
+                saved_configs = list(st.session_state.model_configs.get('concept', {}).keys())
+                if saved_configs:
+                    selected_config = st.selectbox(
+                        "选择已保存的配置",
+                        ["新建配置"] + saved_configs,
+                        key="concept_config_select"
+                    )
+                else:
+                    selected_config = "新建配置"
+            
+            # 配置表单
+            with st.form("concept_model_form"):
+                if selected_config != "新建配置" and selected_config in st.session_state.model_configs.get('concept', {}):
+                    config = st.session_state.model_configs['concept'][selected_config]
+                    config_name = st.text_input("配置名称", value=selected_config)
+                    api_key = st.text_input("API Key", value=config['api_key'], type="password")
+                    base_url = st.text_input("Base URL", value=config['base_url'])
+                    model = st.text_input("Model", value=config['model'])
+                else:
+                    config_name = st.text_input("配置名称", value="")
+                    api_key = st.text_input("API Key", value="", type="password")
+                    base_url = st.text_input("Base URL", value="https://openrouter.ai/api/v1")
+                    model = st.text_input("Model", value="openrouter/cypher-alpha:free")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    save_btn = st.form_submit_button("保存配置", use_container_width=True)
+                with col2:
+                    use_btn = st.form_submit_button("使用此配置", type="primary", use_container_width=True)
+                with col3:
+                    if selected_config != "新建配置":
+                        delete_btn = st.form_submit_button("删除配置", use_container_width=True)
+                    else:
+                        delete_btn = False
+                
+                if save_btn:
+                    if config_name and api_key and base_url and model:
+                        if 'concept' not in st.session_state.model_configs:
+                            st.session_state.model_configs['concept'] = {}
+                        st.session_state.model_configs['concept'][config_name] = {
+                            'api_key': api_key,
+                            'base_url': base_url,
+                            'model': model
+                        }
+                        save_model_configs(st.session_state.model_configs)
+                        st.success(f"✅ 配置 '{config_name}' 已保存")
+                        st.rerun()
+                    else:
+                        st.error("请填写所有字段")
+                
+                if use_btn:
+                    if api_key and base_url and model:
+                        # 更新当前配置
+                        st.session_state.current_concept_config = {
+                            'name': config_name or '临时配置',
+                            'api_key': api_key,
+                            'base_url': base_url,
+                            'model': model
+                        }
+                        # 更新Config和处理器
+                        Config.CONCEPT_ENHANCEMENT_API_KEY = api_key
+                        Config.CONCEPT_ENHANCEMENT_BASE_URL = base_url
+                        Config.CONCEPT_ENHANCEMENT_MODEL = model
+                        processor.concept_enhancement_ai_processor = AIProcessor(api_key, base_url, model)
+                        st.success(f"✅ 已切换到配置: {config_name or '临时配置'}")
+                    else:
+                        st.error("请填写所有字段")
+                
+                if delete_btn:
+                    if selected_config in st.session_state.model_configs.get('concept', {}):
+                        del st.session_state.model_configs['concept'][selected_config]
+                        save_model_configs(st.session_state.model_configs)
+                        st.success(f"✅ 配置 '{selected_config}' 已删除")
+                        st.rerun()
+
+    elif menu_choice == "处理新字幕文件":
+        st.header("处理新字幕文件")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 支持多种字幕文件格式：.lrc, .srt, .vtt, .txt, .ass, .bcc
+            - AI自动提取知识点，生成结构化笔记
+            - 自动增强概念关系，建立知识网络
+            - 支持时间戳链接，方便回看视频原文
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader("上传字幕文件", type=["lrc", "srt", "vtt", "txt", "ass", "bcc"])
         
         # 初始化session state中的source_input默认值
         if 'source_input_default_subtitle' not in st.session_state:
@@ -784,20 +1121,22 @@ else:
 
         # 当上传文件变化时，更新session state中的默认值
         if uploaded_file is not None and st.session_state.source_input_default_subtitle != uploaded_file.name:
-            st.session_state.source_input_default_subtitle = uploaded_file.name
-            # Streamlit会在文件上传后自动重新运行脚本，所以这里不需要st.experimental_rerun()
+            filename = uploaded_file.name
+            filename_without_ext = os.path.splitext(filename)[0]
+            filename_part = filename_without_ext.split('_')[0]
+            processed_filename = filename_part.replace(' ', '-')
+            st.session_state.source_input_default_subtitle = processed_filename
 
-        raw_course_url = st.text_input("输入课程视频URL (可选，用于时间戳链接)", "", key="raw_course_url_subtitle")
-        course_url = extract_url_from_text(raw_course_url) # 立即提取URL
+        raw_course_url = st.text_input("课程视频URL (可选，用于时间戳链接)", "", key="raw_course_url_subtitle")
+        course_url = extract_url_from_text(raw_course_url)
         
-        source_input = st.text_input("输入来源信息 (可选，默认为文件名)", value=st.session_state.source_input_default_subtitle, key="source_input_subtitle")
+        source_input = st.text_input("来源信息 (可选，默认为文件名)", value=st.session_state.source_input_default_subtitle, key="source_input_subtitle")
         
         subjects = list(Config.SUBJECT_MAPPING.keys())
         selected_subject = st.selectbox("选择科目", subjects, key="selected_subject_subtitle")
         
-        if st.button("开始处理"):
+        if st.button("开始处理", type="primary"):
             if uploaded_file is not None:
-                # final_source现在直接使用source_input的值，因为其默认值已动态更新
                 final_source = source_input 
                 with st.spinner("正在处理，请稍候..."):
                     processor.process_subtitle_file_streamlit(uploaded_file, course_url, selected_subject, final_source)
@@ -805,18 +1144,18 @@ else:
                 st.warning("请先上传字幕文件！")
 
     elif menu_choice == "直接输入AI格式文本":
-        st.header("� 直接输入AI格式文本")
-        st.markdown("""
-        <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
-            <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
-            <ul style='margin: 0;'>
-                <li>直接粘贴AI生成的笔记格式文本</li>
-                <li>自动解析并生成结构化的Obsidian笔记</li>
-                <li>支持批量处理多个知识点</li>
-                <li>自动添加课程链接和元数据</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("直接输入AI格式文本")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 直接粘贴AI生成的笔记格式文本
+            - 自动解析并生成结构化的Obsidian笔记
+            - 支持批量处理多个知识点
+            - 自动添加课程链接和元数据
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
         
         # 显示格式示例
         with st.expander("查看AI格式示例"):
@@ -867,12 +1206,11 @@ CONTENT:
         )
         
         # 课程信息
-        st.subheader("课程信息")
         col1, col2 = st.columns(2)
         
         with col1:
             raw_course_url = st.text_input("课程视频URL (可选)", "", help="用于生成时间戳链接", key="raw_course_url_ai_text")
-            course_url = extract_url_from_text(raw_course_url) # 立即提取URL
+            course_url = extract_url_from_text(raw_course_url)
             source_input = st.text_input("来源信息", "手动输入", help="笔记的来源说明", key="source_input_ai_text")
         
         with col2:
@@ -897,7 +1235,7 @@ CONTENT:
         # 处理按钮
         col1, col2 = st.columns([1, 3])
         with col1:
-            if st.button("🚀 开始处理", type="primary"):
+            if st.button("开始处理", type="primary"):
                 if ai_text.strip():
                     with st.spinner("正在处理，请稍候..."):
                         processor.process_ai_formatted_text(ai_text, course_url, selected_subject, source_input)
@@ -905,22 +1243,22 @@ CONTENT:
                     st.warning("请先输入AI格式的文本内容！")
         
         with col2:
-            if st.button("🧹 清空内容"):
+            if st.button("清空内容"):
                 st.rerun()
 
     elif menu_choice == "增强现有笔记概念关系":
-        st.header("🔄 增强现有笔记概念关系")
-        st.markdown("""
-        <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
-            <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
-            <ul style='margin: 0;'>
-                <li>使用AI深度分析笔记内容，优化概念关系</li>
-                <li>支持传统方式和BGE混合检索两种模式</li>
-                <li>可选择处理全部或特定科目笔记</li>
-                <li>自动更新概念数据库，构建知识图谱</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("增强现有笔记概念关系")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 使用AI深度分析笔记内容，优化概念关系
+            - 支持传统方式和BGE混合检索两种模式
+            - 可选择处理全部或特定科目笔记
+            - 自动更新概念数据库，构建知识图谱
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         if not processor.concept_manager.load_database_from_file():
             st.warning("📚 概念数据库不存在，请先处理一些字幕文件或运行笔记增强功能来建立数据库。")
@@ -935,19 +1273,19 @@ CONTENT:
         rerank_threshold = 0.98
 
         if enhance_method == "BGE混合检索（embedding召回+reranker精排）🔥 推荐":
-            st.subheader("BGE混合检索参数配置")
-            use_default_params = st.checkbox("使用默认参数（召回100个，精排15个，阈值0.98）", value=True)
-            if not use_default_params:
-                embedding_top_k = st.number_input("embedding召回数量 (建议50-200)", min_value=1, value=100)
-                rerank_top_k = st.number_input("reranker精排数量 (建议10-20)", min_value=1, value=15)
-                rerank_threshold = st.number_input("reranker分数阈值 (建议0.2-0.5)", min_value=0.0, max_value=1.0, value=0.98, step=0.01)
-                st.info(f"已设置: 召回{embedding_top_k}个 → 精排{rerank_top_k}个 → 阈值{rerank_threshold}")
-            else:
-                st.info("使用默认参数: 召回100个 → 精排15个 → 阈值0.98")
+            with st.expander("BGE混合检索参数配置", expanded=False):
+                use_default_params = st.checkbox("使用默认参数（召回100个，精排15个，阈值0.98）", value=True)
+                if not use_default_params:
+                    embedding_top_k = st.number_input("embedding召回数量 (建议50-200)", min_value=1, value=100)
+                    rerank_top_k = st.number_input("reranker精排数量 (建议10-20)", min_value=1, value=15)
+                    rerank_threshold = st.number_input("reranker分数阈值 (建议0.2-0.5)", min_value=0.0, max_value=1.0, value=0.98, step=0.01)
+                    st.info(f"已设置: 召回{embedding_top_k}个 → 精排{rerank_top_k}个 → 阈值{rerank_threshold}")
+                else:
+                    st.info("使用默认参数: 召回100个 → 精排15个 → 阈值0.98")
 
         st.subheader("选择处理范围")
         scope_choice = st.radio(
-            "选择处理范围:",
+            "",
             ("增强所有科目的笔记", "增强特定科目的笔记")
         )
 
@@ -956,7 +1294,7 @@ CONTENT:
             subjects_enhance = list(Config.SUBJECT_MAPPING.keys())
             selected_subject_enhance = st.selectbox("选择要增强的科目", subjects_enhance)
 
-        if st.button("开始增强"):
+        if st.button("开始增强", type="primary"):
             with st.spinner("正在增强笔记，请稍候..."):
                 notes_to_enhance = []
                 if scope_choice == "增强所有科目的笔记":
@@ -983,18 +1321,18 @@ CONTENT:
                     processor.concept_manager.scan_existing_notes()
 
     elif menu_choice == "时间戳链接化处理":
-        st.header("⏰ 时间戳链接化处理")
-        st.markdown("""
-        <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
-            <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
-            <ul style='margin: 0;'>
-                <li>自动处理笔记中的时间戳标记</li>
-                <li>将时间戳转换为可跳转的视频链接</li>
-                <li>支持批量处理所有科目或指定科目</li>
-                <li>需要笔记中包含course_url字段</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("时间戳链接化处理")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 自动处理笔记中的时间戳标记
+            - 将时间戳转换为可跳转的视频链接
+            - 支持批量处理所有科目或指定科目
+            - 需要笔记中包含course_url字段
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         timestamp_scope = st.radio(
             "选择处理范围:",
@@ -1006,7 +1344,7 @@ CONTENT:
             subjects_timestamp = list(Config.SUBJECT_MAPPING.keys())
             selected_subject_timestamp = st.selectbox("选择要处理的科目", subjects_timestamp)
 
-        if st.button("开始时间戳链接化"):
+        if st.button("开始时间戳链接化", type="primary"):
             with st.spinner("正在处理时间戳，请稍候..."):
                 if timestamp_scope == "处理所有科目的笔记":
                     result = processor.timestamp_linker.process_all_notes_with_course_url()
@@ -1018,33 +1356,28 @@ CONTENT:
                 st.success("时间戳链接化处理完成！")
 
     elif menu_choice == "查看概念数据库状态":
-        st.header("📊 概念数据库状态")
-        st.markdown("""
-        <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
-            <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
-            <ul style='margin: 0;'>
-                <li>查看概念数据库的详细统计信息</li>
-                <li>了解各科目的概念分布情况</li>
-                <li>检查数据库文件状态和更新时间</li>
-                <li>确保数据库文件的完整性</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("概念数据库状态")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 查看概念数据库的详细统计信息
+            - 了解各科目的概念分布情况
+            - 检查数据库文件状态和更新时间
+            - 确保数据库文件的完整性
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
         processor.show_concept_database_status()
 
     elif menu_choice == "查看笔记仓库":
-        st.header("📚 笔记仓库浏览器")
+        st.header("笔记仓库浏览器")
         
         # 使用columns创建左右分栏布局
-        col_sidebar, col_main = st.columns([1, 3])
+        col_sidebar, col_main = st.columns([1.2, 3])
         
         with col_sidebar:
-            st.markdown("""
-            <div class="notion-sidebar">
-                <div style='padding:10px;border-bottom:1px solid #eee;margin-bottom:15px;'>
-                    <h3 style='color:#37352f;margin:0;'>法考笔记仓库</h3>
-                </div>
-            """, unsafe_allow_html=True)
+            st.markdown("### 法考笔记仓库")
             
             # 获取所有科目
             subjects = list(Config.SUBJECT_MAPPING.keys())
@@ -1059,18 +1392,17 @@ CONTENT:
                             if st.button(
                                 f"📄 {note['title']}",
                                 key=f"note_{note['title']}",
-                                use_container_width=True,
-                                type="secondary" if st.session_state.get('selected_note') != note['title'] else "primary"
+                                use_container_width=True
                             ):
                                 st.session_state.selected_note = note
                     else:
                         st.caption("该科目下暂无笔记")
-            
-            st.markdown("</div>", unsafe_allow_html=True)
         
         with col_main:
             if 'selected_note' in st.session_state and st.session_state.selected_note:
                 selected_note = st.session_state.selected_note
+                
+                st.markdown('<div class="notion-card">', unsafe_allow_html=True)
                 st.markdown(f"### {selected_note['title']}")
                 st.markdown(f"*所属科目：{selected_note['subject']}*")
                 st.divider()
@@ -1080,7 +1412,7 @@ CONTENT:
                 if yaml_content:
                     try:
                         yaml_data = yaml.safe_load(yaml_content.group(1))
-                        with st.expander("📌 元数据", expanded=True):
+                        with st.expander("📌 元数据", expanded=False):
                             cols = st.columns(2)
                             for i, (k, v) in enumerate(yaml_data.items()):
                                 cols[i%2].write(f"**{k}**: `{v}`")
@@ -1103,32 +1435,27 @@ CONTENT:
                 processed_content = re.sub(r'^---\n.*?\n---', '', processed_content, flags=re.DOTALL)
                 
                 # 显示处理后的内容
-                st.markdown(f"""
-                <div class="notion-style">
-                    <div class="notion-block">
-                        {processed_content}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(processed_content)
                 
-                # 显示元数据
+                # 显示文件信息
                 with st.expander("文件信息", expanded=False):
                     st.write(f"文件路径：`{selected_note['file_path']}`")
                     st.write(f"最后修改时间：{datetime.datetime.fromtimestamp(os.path.getmtime(selected_note['file_path'])).strftime('%Y-%m-%d %H:%M:%S')}")
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.info("👈 请在左侧选择科目并点击笔记进行查看")
 
     elif menu_choice == "科目文件夹映射":
-        st.header("📚 科目文件夹映射")
-        st.markdown("""
-        <div style='padding: 15px; border-radius: 10px; background-color: #F3F4F6; margin-bottom: 25px;'>
-            <h4 style='color: #2C5282; margin: 0 0 10px 0;'>功能说明</h4>
-            <ul style='margin: 0;'>
-                <li>查看所有科目与文件夹的对应关系</li>
-                <li>快速定位各科目的笔记存储位置</li>
-                <li>验证文件夹的存在状态</li>
-                <li>了解笔记的组织结构</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("科目文件夹映射")
+        
+        with st.container():
+            st.markdown('<div class="notion-card">', unsafe_allow_html=True)
+            st.markdown("""
+            **功能说明**
+            - 查看所有科目与文件夹的对应关系
+            - 快速定位各科目的笔记存储位置
+            - 验证文件夹的存在状态
+            - 了解笔记的组织结构
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
         processor.show_subject_mapping()
