@@ -493,7 +493,7 @@ else:
 
     # 侧边栏菜单
     with st.sidebar:
-        menu_choice = st.radio("", AppConstants.MENU_OPTIONS)  # 移除标题，使用空字符串
+        menu_choice = st.radio(" ", AppConstants.MENU_OPTIONS)  # 移除标题，使用空字符串
 
     # 主要的菜单处理逻辑
     if menu_choice == "📄 处理新字幕文件":
