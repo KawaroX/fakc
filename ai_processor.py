@@ -50,11 +50,18 @@ class AIProcessor:
         prompt = self._build_single_note_enhancement_prompt(note_content, note_title, existing_concepts)
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            
+            if self.model == "gemini-2.5-flash":
+                response = self.client.chat.completions.create(
+                    reasoning_effort="medium",
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            else:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+
             return self._parse_single_note_enhancement_response(
                 response.choices[0].message.content, 
                 note_content
