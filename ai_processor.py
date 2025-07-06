@@ -2,6 +2,7 @@
 import yaml
 import re
 import datetime
+import json
 from openai import OpenAI
 from typing import List, Dict, Any, Optional
 
@@ -10,9 +11,39 @@ class AIProcessor:
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
     
-    def extract_all_knowledge_points(self, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-        """一次性处理整个字幕，返回所有知识点的结构化数据"""
-        prompt = self._build_extraction_prompt(subtitle_content, metadata)
+    # 第一步：知识点分析与架构构建
+    def extract_knowledge_points_step1(self, subtitle_content: str, metadata: Dict[str, str]) -> Dict:
+        """执行第一步分析，输出JSON结构"""
+        prompt = self.STEP1_PROMPT_TEMPLATE.format(
+            subtitle_content=subtitle_content,
+            subject=metadata['subject'],
+            source=metadata['source'],
+            course_url=metadata.get('course_url', '未提供')
+        )
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0,
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"❌ 第一步分析失败: {e}")
+            return {}
+
+    # 第二步：详细笔记整理
+    def generate_notes_step2(self, analysis_result: Dict, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """根据第一步结果生成最终笔记"""
+        prompt = self.STEP2_PROMPT_TEMPLATE.format(
+            analysis_result=json.dumps(analysis_result, ensure_ascii=False),
+            subtitle_content=subtitle_content,
+            subject=metadata['subject'],
+            source=metadata['source'],
+            course_url=metadata.get('course_url', '')
+        )
         
         try:
             response = self.client.chat.completions.create(
@@ -23,8 +54,119 @@ class AIProcessor:
             
             return self._parse_ai_response(response.choices[0].message.content)
         except Exception as e:
-            print(f"❌ AI处理出错: {e}")
+            print(f"❌ 第二步笔记生成失败: {e}")
             return []
+
+    # 旧版兼容方法（单步处理）
+    def extract_all_knowledge_points(self, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """一次性处理整个字幕（兼容旧版）"""
+        # 使用新两步法处理
+        analysis = self.extract_knowledge_points_step1(subtitle_content, metadata)
+        return self.generate_notes_step2(analysis, subtitle_content, metadata)
+    
+    # 新增提示词模板常量
+    STEP1_PROMPT_TEMPLATE = """\
+## 🎯 步骤一：知识点分析与架构构建
+
+你是专业的法考课程分析专家。请深度分析以下字幕内容，识别所有知识点并构建详细的学习架构。
+
+字幕内容：
+{subtitle_content}
+
+课程信息：
+- 科目：{subject}
+- 来源：{source}
+- 课程链接：{course_url}
+
+## 分析目标
+
+你需要为后续的笔记整理AI提供完整的指导，确保：
+1. **无遗漏**：识别每个独立的法律概念
+2. **保细节**：保留老师的重要表述、强调、举例
+3. **建关联**：明确概念间的逻辑关系
+4. **传风格**：准确传达老师的教学特点
+
+## 知识点识别原则
+
+**超细化拆分标准**：
+- 每个有独立名称的法律概念都要单独识别
+- 每个可能在考试中单独考查的知识点都要拆分
+- 每个在实务中有独立应用的概念都要独立处理
+- 宁可拆分过细，不要合并独立概念
+
+**特别关注**：
+- 法律条文中的具体规定
+- 构成要件的每个要素
+- 不同情形下的处理原则
+- 例外规定和特殊情况
+- 老师特别强调的要点
+
+## 输出要求
+
+请严格按照以下JSON格式输出分析结果：
+
+```json
+（保持原始JSON结构不变）
+```"""
+
+    STEP2_PROMPT_TEMPLATE = """\
+## 🎯 步骤二：详细笔记整理
+
+你是专业的法考笔记整理专家。请根据前一步的分析结果和原始字幕内容，生成完整的Obsidian笔记。
+
+**知识点分析结果**：
+{analysis_result}
+
+**原始字幕内容**：
+{subtitle_content}
+
+**课程信息**：
+- 科目：{subject}
+- 来源：{source}
+- 课程链接：{course_url}
+
+## 整理目标
+
+基于知识点分析，为每个识别出的概念创建完整的Obsidian笔记，实现：
+1. **知识图谱节点**：每个笔记是图谱中的清晰节点
+2. **Wiki百科条目**：独立完整，可单独阅读理解
+3. **错题定位索引**：精准匹配考试知识点
+
+## 核心原则
+
+**完全依据分析结果**：严格按照第一步识别的知识点列表生成笔记
+**保持教学原味**：充分利用分析结果中的teacher_original、examples等信息
+**结构智能设计**：根据concept_type设计最适合的章节结构
+**双链精确建立**：使用relationships信息建立准确的概念关联
+
+## 技术规范
+
+**YAML元数据**：
+```yaml
+title: "【{subject}】{{concept_name}}"
+aliases: ["{{concept_name}}"]
+tags: ["{subject}", "根据concept_type确定"]
+source: "{source}"
+course_url: "{course_url}"
+time_range: "{{time_range}}"
+exam_importance: "{{importance_level}}"
+```
+
+**双链格式**：
+- [[【{subject}】概念名|概念名]]
+- 根据relationships精确建立
+
+**时间戳格式**：
+- 严格使用[MM:SS.mm]
+- 从time_range中提取
+
+## 输出格式
+
+每个笔记使用以下格式：
+```
+=== NOTE_SEPARATOR ===
+（保持原始笔记格式不变）
+```"""
     
     def enhance_concept_relationships(self, all_notes: List[Dict], existing_concepts: Dict) -> List[Dict]:
         """让AI分析所有笔记内容，增强概念关系"""
