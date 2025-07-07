@@ -1,9 +1,11 @@
 """
 UI组件文件 - 包含可复用的UI组件函数
-完整版本，包含所有界面组件和修复后的布局
+完整版本，包含所有界面组件和修复后的布局，新增模型选择和第一步结果展示组件
 """
 
 import streamlit as st
+import json
+import yaml
 from typing import List, Dict, Any, Optional, Callable
 
 def fix_material_icons_in_text(text: str) -> str:
@@ -53,21 +55,22 @@ def render_enhanced_button(text: str, key: str = None, button_type: str = "secon
         use_container_width=use_container_width,
         disabled=disabled
     )
+
+def render_feature_description(feature_name: str, descriptions: list):
     """
-    渲染功能说明卡片
+    渲染功能描述卡片 - 修复了文字在框里的问题
     
     Args:
-        title: 卡片标题
-        features: 功能列表
-        icon: 图标
+        feature_name: 功能名称
+        descriptions: 描述列表
     """
-    features_html = "\n".join([f"<li>{feature}</li>" for feature in features])
+    desc_html = "\n".join([f"<li>{desc}</li>" for desc in descriptions])
     
     card_html = f"""
     <div class="notion-card">
-        <h4>{icon} {title}</h4>
+        <h4>📖 {feature_name}</h4>
         <ul>
-            {features_html}
+            {desc_html}
         </ul>
     </div>
     """
@@ -99,6 +102,268 @@ def render_info_card(content: str, card_type: str = "info"):
     
     st.markdown(card_html, unsafe_allow_html=True)
 
+def render_model_selector(config_type: str, saved_configs: dict, current_config: dict, 
+                         label: str = None, help_text: str = None, key: str = None):
+    """
+    渲染模型选择器组件
+    
+    Args:
+        config_type: 配置类型 (subtitle/concept)
+        saved_configs: 已保存的配置字典
+        current_config: 当前配置
+        label: 选择器标签
+        help_text: 帮助文本
+        key: Streamlit组件的key
+        
+    Returns:
+        选择的配置信息
+    """
+    if not label:
+        label = f"🤖 选择{config_type}模型配置"
+    
+    # 构建选项列表
+    options = []
+    option_data = {}
+    
+    # 添加当前配置选项
+    current_name = current_config.get('name', '当前配置')
+    options.append(f"✅ {current_name} (当前)")
+    option_data[f"✅ {current_name} (当前)"] = current_config
+    
+    # 添加已保存的配置选项
+    for config_name, config_data in saved_configs.items():
+        if config_name != current_name:
+            options.append(f"💾 {config_name}")
+            option_data[f"💾 {config_name}"] = {
+                'name': config_name,
+                **config_data
+            }
+    
+    # 如果没有其他配置，添加提示
+    if len(options) == 1:
+        st.info("💡 提示：可以在⚙️模型配置页面保存更多配置方案")
+    
+    # 选择器
+    selected_option = st.selectbox(
+        label,
+        options,
+        index=0,
+        help=help_text or "选择要使用的AI模型配置",
+        key=key
+    )
+    
+    selected_config = option_data[selected_option]
+    
+    # 显示配置详情
+    with st.expander(f"📋 {selected_config['name']} 配置详情", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Base URL**: `{selected_config['base_url']}`")
+            st.write(f"**Model**: `{selected_config['model']}`")
+        with col2:
+            api_key_display = selected_config['api_key'][:8] + "..." if len(selected_config['api_key']) > 8 else selected_config['api_key']
+            st.write(f"**API Key**: `{api_key_display}`")
+    
+    return selected_config
+
+def render_step1_result_viewer(analysis_result: dict, allow_edit: bool = True):
+    """
+    渲染第一步分析结果查看器
+    
+    Args:
+        analysis_result: 第一步分析结果
+        allow_edit: 是否允许编辑
+        
+    Returns:
+        用户操作结果和可能修改的分析结果
+    """
+    st.subheader("📋 第一步分析结果")
+    
+    if not analysis_result:
+        st.error("❌ 第一步分析结果为空")
+        return {'action': 'retry', 'result': None}
+    
+    # 显示课程概览
+    if 'course_overview' in analysis_result:
+        overview = analysis_result['course_overview']
+        st.markdown("### 📚 课程概览")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**主要话题**: {overview.get('main_topic', '未知')}")
+            st.write(f"**总时长**: {overview.get('total_duration', '未知')}")
+            st.write(f"**难度等级**: {overview.get('difficulty_level', '未知')}")
+        
+        with col2:
+            st.write(f"**教学风格**: {overview.get('teaching_style', '未知')}")
+            if overview.get('key_emphasis'):
+                st.write(f"**重点强调**: {', '.join(overview['key_emphasis'][:3])}")
+    
+    # 显示知识点统计
+    if 'knowledge_points' in analysis_result:
+        knowledge_points = analysis_result['knowledge_points']
+        st.markdown("### 📊 知识点统计")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("总知识点", len(knowledge_points))
+        with col2:
+            high_importance = len([kp for kp in knowledge_points if kp.get('importance_level') == '高'])
+            st.metric("高重要性", high_importance)
+        with col3:
+            concept_types = set([kp.get('concept_type', '未知') for kp in knowledge_points])
+            st.metric("概念类型", len(concept_types))
+        with col4:
+            avg_time = "计算中..." if knowledge_points else "无数据"
+            st.metric("平均时长", avg_time)
+        
+        # 显示知识点列表
+        st.markdown("### 📝 知识点详情")
+        
+        # 分重要性显示
+        for importance in ['高', '中', '低']:
+            filtered_kps = [kp for kp in knowledge_points if kp.get('importance_level') == importance]
+            if filtered_kps:
+                with st.expander(f"🎯 {importance}重要性知识点 ({len(filtered_kps)}个)", expanded=(importance == '高')):
+                    for i, kp in enumerate(filtered_kps, 1):
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        with col1:
+                            st.write(f"**{i}. {kp.get('concept_name', '未命名')}**")
+                            if kp.get('core_definition', {}).get('teacher_original'):
+                                st.caption(f"💬 {kp['core_definition']['teacher_original'][:100]}...")
+                        with col2:
+                            st.write(f"🏷️ {kp.get('concept_type', '未知')}")
+                        with col3:
+                            st.write(f"⏰ {kp.get('time_range', '未知')}")
+    
+    # 显示概念结构
+    if 'concept_structure' in analysis_result:
+        structure = analysis_result['concept_structure']
+        with st.expander("🗺️ 概念结构关系", expanded=False):
+            if structure.get('hierarchy'):
+                st.write(f"**层次结构**: {structure['hierarchy']}")
+            if structure.get('main_logic_flow'):
+                st.write(f"**逻辑脉络**: {structure['main_logic_flow']}")
+            if structure.get('cross_references'):
+                st.write(f"**交叉引用**: {len(structure['cross_references'])}个关系")
+    
+    # 显示教学洞察
+    if 'teaching_insights' in analysis_result:
+        insights = analysis_result['teaching_insights']
+        with st.expander("👨‍🏫 教学风格分析", expanded=False):
+            if insights.get('teacher_preferences'):
+                st.write(f"**教学偏好**: {insights['teacher_preferences']}")
+            if insights.get('emphasis_pattern'):
+                st.write(f"**强调模式**: {insights['emphasis_pattern']}")
+            if insights.get('student_attention'):
+                st.write("**学习要点**:")
+                for attention in insights['student_attention']:
+                    st.write(f"  - {attention}")
+    
+    st.markdown("---")
+    
+    # 操作按钮
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("✅ 确认继续", type="primary", use_container_width=True):
+            return {'action': 'continue', 'result': analysis_result}
+    
+    with col2:
+        if st.button("✏️ 手动编辑", use_container_width=True):
+            return {'action': 'edit', 'result': analysis_result}
+    
+    with col3:
+        if st.button("🔄 重新分析", use_container_width=True):
+            return {'action': 'retry', 'result': None}
+    
+    return {'action': 'none', 'result': analysis_result}
+
+def render_step1_result_editor(analysis_result: dict):
+    """
+    渲染第一步结果编辑器
+    
+    Args:
+        analysis_result: 第一步分析结果
+        
+    Returns:
+        编辑后的分析结果
+    """
+    st.subheader("✏️ 编辑第一步分析结果")
+    st.info("💡 您可以直接编辑下面的JSON内容，修改分析结果")
+    
+    # 将结果转换为格式化的JSON字符串
+    json_content = json.dumps(analysis_result, ensure_ascii=False, indent=2)
+    
+    # 文本编辑器
+    edited_content = st.text_area(
+        "编辑分析结果 (JSON格式)",
+        value=json_content,
+        height=400,
+        help="请保持有效的JSON格式"
+    )
+    
+    # 验证和保存按钮
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔍 验证格式", use_container_width=True):
+            try:
+                json.loads(edited_content)
+                st.success("✅ JSON格式正确")
+            except json.JSONDecodeError as e:
+                st.error(f"❌ JSON格式错误: {e}")
+    
+    with col2:
+        if st.button("💾 保存修改", type="primary", use_container_width=True):
+            try:
+                edited_result = json.loads(edited_content)
+                st.success("✅ 修改已保存")
+                return {'action': 'save', 'result': edited_result}
+            except json.JSONDecodeError as e:
+                st.error(f"❌ 无法保存，JSON格式错误: {e}")
+                return {'action': 'error', 'result': analysis_result}
+    
+    with col3:
+        if st.button("❌ 取消编辑", use_container_width=True):
+            return {'action': 'cancel', 'result': analysis_result}
+    
+    return {'action': 'none', 'result': analysis_result}
+
+def render_two_step_progress(current_step: int, step1_completed: bool = False, step2_completed: bool = False):
+    """
+    渲染两步走进度指示器
+    
+    Args:
+        current_step: 当前步骤 (1 或 2)
+        step1_completed: 第一步是否完成
+        step2_completed: 第二步是否完成
+    """
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if current_step == 1:
+            if step1_completed:
+                st.success("✅ 第一步：知识点分析 - 已完成")
+            else:
+                st.info("🔄 第一步：知识点分析 - 进行中")
+        else:
+            if step1_completed:
+                st.success("✅ 第一步：知识点分析 - 已完成")
+            else:
+                st.write("⏸️ 第一步：知识点分析 - 待完成")
+    
+    with col2:
+        if current_step == 2:
+            if step2_completed:
+                st.success("✅ 第二步：笔记生成 - 已完成")
+            else:
+                st.info("🔄 第二步：笔记生成 - 进行中")
+        elif step1_completed:
+            st.write("⏭️ 第二步：笔记生成 - 准备中")
+        else:
+            st.write("⏸️ 第二步：笔记生成 - 等待第一步完成")
+
 def render_process_steps(steps: list, title: str = "处理步骤"):
     """
     渲染处理步骤卡片
@@ -115,27 +380,6 @@ def render_process_steps(steps: list, title: str = "处理步骤"):
         <ol>
             {steps_html}
         </ol>
-    </div>
-    """
-    
-    st.markdown(card_html, unsafe_allow_html=True)
-
-def render_feature_description(feature_name: str, descriptions: list):
-    """
-    渲染功能描述卡片 - 修复了文字在框里的问题
-    
-    Args:
-        feature_name: 功能名称
-        descriptions: 描述列表
-    """
-    desc_html = "\n".join([f"<li>{desc}</li>" for desc in descriptions])
-    
-    card_html = f"""
-    <div class="notion-card">
-        <h4>📖 {feature_name}</h4>
-        <ul>
-            {desc_html}
-        </ul>
     </div>
     """
     

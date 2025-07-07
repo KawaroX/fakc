@@ -2,6 +2,7 @@
 import yaml
 import re
 import datetime
+import json
 from openai import OpenAI
 from typing import List, Dict, Any, Optional
 
@@ -10,9 +11,39 @@ class AIProcessor:
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
     
-    def extract_all_knowledge_points(self, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-        """一次性处理整个字幕，返回所有知识点的结构化数据"""
-        prompt = self._build_extraction_prompt(subtitle_content, metadata)
+    # 第一步：知识点分析与架构构建
+    def extract_knowledge_points_step1(self, subtitle_content: str, metadata: Dict[str, str]) -> Dict:
+        """执行第一步分析，输出JSON结构"""
+        prompt = self.STEP1_PROMPT_TEMPLATE.format(
+            subtitle_content=subtitle_content,
+            subject=metadata['subject'],
+            source=metadata['source'],
+            course_url=metadata.get('course_url', '未提供')
+        )
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0,
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"❌ 第一步分析失败: {e}")
+            return {}
+
+    # 第二步：详细笔记整理
+    def generate_notes_step2(self, analysis_result: Dict, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """根据第一步结果生成最终笔记"""
+        prompt = self.STEP2_PROMPT_TEMPLATE.format(
+            analysis_result=json.dumps(analysis_result, ensure_ascii=False),
+            subtitle_content=subtitle_content,
+            subject=metadata['subject'],
+            source=metadata['source'],
+            course_url=metadata.get('course_url', '')
+        )
         
         try:
             response = self.client.chat.completions.create(
@@ -23,8 +54,277 @@ class AIProcessor:
             
             return self._parse_ai_response(response.choices[0].message.content)
         except Exception as e:
-            print(f"❌ AI处理出错: {e}")
+            print(f"❌ 第二步笔记生成失败: {e}")
             return []
+
+    # 旧版兼容方法（单步处理）
+    def extract_all_knowledge_points(self, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """一次性处理整个字幕（兼容旧版）"""
+        # 使用新两步法处理
+        analysis = self.extract_knowledge_points_step1(subtitle_content, metadata)
+        if not analysis:
+            return []
+        return self.generate_notes_step2(analysis, subtitle_content, metadata)
+    
+    # 第一步提示词模板
+    STEP1_PROMPT_TEMPLATE = """\
+你是专业的法考课程分析专家。请深度分析以下字幕内容，识别所有知识点并构建详细的学习架构。
+
+字幕内容：
+{subtitle_content}
+
+课程信息：
+- 科目：{subject}
+- 来源：{source}
+- 课程链接：{course_url}
+
+## 分析目标
+
+你需要为后续的笔记整理AI提供完整的指导，确保：
+1. **无遗漏**：识别每个独立的法律概念
+2. **保细节**：保留老师的重要表述、强调、举例
+3. **建关联**：明确概念间的逻辑关系
+4. **传风格**：准确传达老师的教学特点
+
+## 知识点识别原则
+
+**超细化拆分标准**：
+- 每个有独立名称的法律概念都要单独识别
+- 每个可能在考试中单独考查的知识点都要拆分
+- 每个在实务中有独立应用的概念都要独立处理
+- 宁可拆分过细，不要合并独立概念
+
+**特别关注**：
+- 法律条文中的具体规定
+- 构成要件的每个要素
+- 不同情形下的处理原则
+- 例外规定和特殊情况
+- 老师特别强调的要点
+
+## 输出要求
+
+请严格按照以下JSON格式输出分析结果：
+
+{{
+  "course_overview": {{
+    "main_topic": "主要话题",
+    "total_duration": "总时长",
+    "teaching_style": "老师教学风格描述（举例多/理论强/实务导向等）",
+    "key_emphasis": ["老师反复强调的要点1", "要点2"],
+    "difficulty_level": "难度等级"
+  }},
+  
+  "knowledge_points": [
+    {{
+      "id": "KP001",
+      "concept_name": "概念名称",
+      "concept_type": "定义性概念/程序性知识/判断标准/构成要件/法条规定/实务经验",
+      "time_range": "MM:SS.mm-MM:SS.mm",
+      "importance_level": "高/中/低",
+      
+      "core_definition": {{
+        "teacher_original": "老师的原始表述（尽可能保持原话）",
+        "key_keywords": ["关键词1", "关键词2"],
+        "context": "定义的上下文背景"
+      }},
+      
+      "detailed_content": {{
+        "main_explanation": "主要解释内容",
+        "examples": [
+          {{
+            "example_content": "具体例子内容", 
+            "teacher_comment": "老师对例子的点评或强调"
+          }}
+        ],
+        "special_notes": ["特别注意事项1", "注意事项2"],
+        "common_mistakes": ["易错点1", "易错点2"],
+        "memory_tips": "记忆技巧或口诀"
+      }},
+      
+      "exam_relevance": {{
+        "exam_frequency": "常考/偶考/基础",
+        "question_types": ["选择题", "案例题", "论述题"],
+        "key_test_points": ["考点1", "考点2"]
+      }},
+      
+      "relationships": {{
+        "parent_concept": "上位概念ID",
+        "sub_concepts": ["子概念ID1", "子概念ID2"],
+        "related_concepts": ["相关概念ID1", "相关概念ID2"],
+        "contrast_concepts": ["对比概念ID1", "对比概念ID2"]
+      }}
+    }}
+  ],
+  
+  "concept_structure": {{
+    "hierarchy": "概念层次结构的文字描述",
+    "main_logic_flow": "主要逻辑脉络",
+    "cross_references": [
+      {{
+        "concept1": "概念ID1",
+        "concept2": "概念ID2", 
+        "relationship": "关系类型（包含/对比/依赖/并列等）"
+      }}
+    ]
+  }},
+  
+  "teaching_insights": {{
+    "teacher_preferences": "老师的教学偏好（爱举例/重理论/强调实务等）",
+    "emphasis_pattern": "强调模式（重复说明/对比分析/案例解释等）",
+    "student_attention": ["需要特别注意的学习要点"],
+    "practical_tips": ["实务建议或经验分享"]
+  }}
+}}
+
+## 特别要求
+
+1. **保持原汁原味**：尽可能保留老师的原始表述，特别是定义、强调、举例
+2. **时间戳精确**：每个知识点都要有准确的时间范围，格式为[MM:SS.mm-MM:SS.mm]
+3. **关系清晰**：概念间的关系要准确，避免循环引用
+4. **细节丰富**：为后续笔记整理提供充分的信息基础
+5. **ID命名**：知识点ID使用KP001、KP002格式，便于引用
+
+请开始分析，输出完整的JSON结构。"""
+
+    # 第二步提示词模板
+    STEP2_PROMPT_TEMPLATE = """\
+你是专业的法考笔记整理专家。请根据前一步的分析结果和原始字幕内容，生成完整的Obsidian笔记。
+
+## 输入内容
+
+**知识点分析结果**：
+{analysis_result}
+
+**原始字幕内容**：
+{subtitle_content}
+
+**课程信息**：
+- 科目：{subject}
+- 来源：{source}
+- 课程链接：{course_url}
+
+## 整理目标
+
+基于知识点分析，为每个识别出的概念创建完整的Obsidian笔记，实现：
+1. **知识图谱节点**：每个笔记是图谱中的清晰节点
+2. **Wiki百科条目**：独立完整，可单独阅读理解
+3. **错题定位索引**：精准匹配考试知识点
+
+## 核心原则
+
+**完全依据分析结果**：严格按照第一步识别的知识点列表生成笔记，不遗漏、不新增
+
+**保持教学原味**：充分利用分析结果中的teacher_original、examples、teacher_comment等信息
+
+**结构智能设计**：根据每个概念的特点（concept_type）和详细内容设计最适合的章节结构
+
+**双链精确建立**：使用分析结果中的relationships信息建立准确的概念关联
+
+## 笔记生成规则
+
+**必需章节**：每个笔记必须包含
+- 核心定义
+- 记忆要点  
+- 相关概念
+
+**自由章节**：根据概念特点智能创造
+- 构成要件类：详细列举各个要件
+- 程序性知识：步骤或流程说明
+- 判断标准类：判断方法和标准
+- 实务经验类：实际应用和注意事项
+- 法条规定类：条文内容和适用情况
+
+**章节设计指导**：
+```
+concept_type = "构成要件" → 可设计"构成要件详解"章节
+concept_type = "程序性知识" → 可设计"操作流程"章节  
+concept_type = "判断标准" → 可设计"判断方法"章节
+concept_type = "实务经验" → 可设计"实务应用"章节
+concept_type = "法条规定" → 可设计"条文解读"章节
+```
+
+## 内容填充策略
+
+**核心定义**：优先使用teacher_original，补充context信息
+
+**详细内容**：充分利用main_explanation、examples、special_notes
+
+**记忆要点**：结合memory_tips、key_keywords、common_mistakes
+
+**相关概念**：严格按照relationships中的信息建立双链
+
+**案例举例**：详细展开examples中的内容，保留teacher_comment
+
+## 技术规范
+
+**YAML元数据**：
+```yaml
+title: "【{subject}】{{concept_name}}"
+aliases: ["{{concept_name}}", "其他别名"]
+tags: ["{subject}", "根据concept_type确定", "根据importance_level确定"]
+source: "{source}"
+course_url: "{course_url}"
+time_range: "{{time_range}}"
+subject: "{subject}"
+exam_importance: "{{importance_level}}"
+concept_id: "{{id}}"
+created: "当前时间"
+```
+
+**双链格式**：
+- 引用格式：[[【{subject}】概念名|概念名]]
+- 根据relationships精确建立关联
+
+**时间戳格式**：
+- 严格使用[MM:SS.mm]格式
+- 从time_range中提取
+
+## 输出格式
+
+每个笔记使用以下格式：
+
+```
+=== NOTE_SEPARATOR ===
+YAML:
+---
+[YAML元数据]
+---
+CONTENT:
+# 【{subject}】{{concept_name}}
+
+## 核心定义
+
+⏰ [{{time_range}}]
+[基于teacher_original和core_definition的内容]
+
+## [智能创造的章节标题]
+[基于detailed_content和concept_type的具体内容]
+
+## 记忆要点
+
+🔮 [基于memory_tips的关键点] — [简洁解释]
+📱 [基于examples的应用场景] — [典型情况]
+💡 [基于common_mistakes的提醒] — [易错提示]
+
+## 相关概念
+
+[基于relationships精确建立的双链列表]
+
+---
+*视频时间段：{{time_range}}*
+
+=== NOTE_SEPARATOR ===
+```
+
+## 质量要求
+
+1. **一一对应**：analysis_result中每个knowledge_point都要生成对应笔记
+2. **信息完整**：充分利用分析结果中的所有有用信息
+3. **逻辑清晰**：概念间关系准确，双链有意义
+4. **细节丰富**：案例详细，说明充分
+5. **格式标准**：严格遵循技术规范
+
+请开始根据分析结果生成完整的Obsidian笔记，按序号顺序处理每个知识点，不遗漏任何概念。严格按照格式输出，不需要额外说明。"""
     
     def enhance_concept_relationships(self, all_notes: List[Dict], existing_concepts: Dict) -> List[Dict]:
         """让AI分析所有笔记内容，增强概念关系"""
@@ -322,7 +622,7 @@ ENHANCEMENT:
 5. 确保新增的概念链接与笔记内容高度相关
 6. 双链格式要求：如果概念名有【科目】前缀，使用显示别名格式：[[【科目】概念名|概念名（或者别名）]]
 7. 不要添加任何优化说明或额外内容
-8. [时间戳]必须严格使用[MM:SS.mm]([分:秒.毫秒])格式，任何一位都不能省略。如[01:23.45]，如果分钟数为0，要保留，如[00:23.45]；秒和毫秒之间使用英文句点“.”
+8. [时间戳]必须严格使用[MM:SS.mm]([分:秒.毫秒])格式，任何一位都不能省略。如[01:23.45]，如果分钟数为0，要保留，如[00:23.45]；秒和毫秒之间使用英文句点"."
 
 
 如果需要修改，请输出：

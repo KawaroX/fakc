@@ -1,14 +1,14 @@
 """
-法考笔记处理系统 - Web界面 (完整修复版)
+法考笔记处理系统 - Web界面 (完整两步走版本)
 
-修复内容：
-1. 删除自定义header，使用Streamlit原生header
-2. 重新设计侧边栏按钮为Notion风格图标
-3. 在原生header中央添加应用标题
-4. 添加header阴影效果
+新增功能：
+1. 两步走处理方式
+2. 第一步结果查看和编辑
+3. 分别选择不同步骤的AI模型
+4. 完善的错误处理和状态管理
 
 作者：FAKC Team
-版本：2.2.1 (Header修复版)
+版本：2.3.0 (两步走完整版)
 """
 
 import datetime
@@ -34,7 +34,9 @@ from ui_components import (
     render_model_config_section, render_repair_stats, render_broken_links_list,
     render_concept_database_status, render_subject_mapping, render_note_browser,
     render_warning_box, render_success_box, render_error_box, render_code_example,
-    render_enhanced_button, fix_material_icons_in_text, UIConstants
+    render_enhanced_button, fix_material_icons_in_text, UIConstants,
+    render_model_selector, render_step1_result_viewer, render_step1_result_editor,
+    render_two_step_progress
 )
 from app_constants import AppConstants, UIConfig, ModelConfig
 
@@ -68,15 +70,10 @@ class StreamlitLawExamNoteProcessor:
     法考笔记处理器的Streamlit适配版本
     
     负责处理字幕文件、生成笔记、管理概念关系等核心功能的Web界面适配实现。
-    所有方法都经过优化以配合Streamlit的界面交互模式，包括进度展示和状态反馈。
+    新增两步走处理方式，支持不同步骤使用不同的AI模型。
     """
     def __init__(self):
         # 确保每次初始化时都从Config类获取最新值
-        self.subtitle_ai_processor = AIProcessor(
-            Config.SUBTITLE_PROCESSING_API_KEY, 
-            Config.SUBTITLE_PROCESSING_BASE_URL, 
-            Config.SUBTITLE_PROCESSING_MODEL
-        )
         self.concept_enhancement_ai_processor = AIProcessor(
             Config.CONCEPT_ENHANCEMENT_API_KEY, 
             Config.CONCEPT_ENHANCEMENT_BASE_URL, 
@@ -87,6 +84,22 @@ class StreamlitLawExamNoteProcessor:
         self.timestamp_linker = TimestampLinker(Config.OBSIDIAN_VAULT_PATH)
         self.link_repairer = LinkRepairer(Config.OBSIDIAN_VAULT_PATH)
         self.siliconflow_enhancer = None
+
+    def create_ai_processor_from_config(self, config: dict) -> AIProcessor:
+        """
+        根据配置创建AI处理器实例
+        
+        Args:
+            config: 包含API配置的字典
+            
+        Returns:
+            AIProcessor实例
+        """
+        return AIProcessor(
+            config['api_key'],
+            config['base_url'], 
+            config['model']
+        )
 
     def _get_siliconflow_enhancer(self):
         """获取SiliconFlow增强器实例（延迟初始化）"""
@@ -103,6 +116,159 @@ class StreamlitLawExamNoteProcessor:
                 return None
         return self.siliconflow_enhancer
 
+    def process_two_step_subtitle_file(
+        self,
+        uploaded_file: "StreamlitUploadedFile",
+        course_url: str,
+        selected_subject: str,
+        source_info: str,
+        step1_config: dict,
+        step2_config: dict
+    ) -> Dict:
+        """
+        两步走处理字幕文件的完整流程
+        
+        Args:
+            uploaded_file: Streamlit上传的字幕文件对象
+            course_url: 课程视频URL
+            selected_subject: 选择的科目名称
+            source_info: 笔记来源信息
+            step1_config: 第一步AI配置
+            step2_config: 第二步AI配置
+            
+        Returns:
+            包含处理状态和结果的字典
+        """
+        try:
+            # 1. 读取字幕内容
+            st.info("📖 读取字幕文件...")
+            subtitle_content = uploaded_file.getvalue().decode("utf-8")
+            
+            if not subtitle_content.strip():
+                return {'status': 'error', 'message': '字幕文件为空'}
+            
+            # 构建元数据
+            metadata = {
+                'subject': selected_subject,
+                'source': source_info,
+                'course_url': course_url
+            }
+            
+            # 2. 第一步：知识点分析
+            st.info("🔍 开始第一步：知识点分析与架构构建...")
+            step1_processor = self.create_ai_processor_from_config(step1_config)
+            
+            with st.spinner("🤖 AI正在深度分析字幕内容..."):
+                analysis_result = step1_processor.extract_knowledge_points_step1(
+                    subtitle_content, metadata
+                )
+            
+            if not analysis_result:
+                return {
+                    'status': 'error', 
+                    'message': '第一步分析失败，请检查模型配置和网络连接',
+                    'step': 1
+                }
+            
+            st.success("✅ 第一步分析完成！")
+            
+            return {
+                'status': 'step1_complete',
+                'analysis_result': analysis_result,
+                'subtitle_content': subtitle_content,
+                'metadata': metadata,
+                'step1_config': step1_config,
+                'step2_config': step2_config
+            }
+            
+        except Exception as e:
+            st.error(f"❌ 处理过程中出错: {e}")
+            return {'status': 'error', 'message': str(e), 'step': 1}
+
+    def process_step2_generation(
+        self,
+        analysis_result: dict,
+        subtitle_content: str,
+        metadata: dict,
+        step2_config: dict
+    ) -> List[str]:
+        """
+        执行第二步：根据分析结果生成笔记
+        
+        Args:
+            analysis_result: 第一步分析结果
+            subtitle_content: 原始字幕内容
+            metadata: 元数据
+            step2_config: 第二步AI配置
+            
+        Returns:
+            生成的笔记文件路径列表
+        """
+        try:
+            # 1. 创建第二步AI处理器
+            st.info("📝 开始第二步：详细笔记整理与生成...")
+            step2_processor = self.create_ai_processor_from_config(step2_config)
+            
+            # 2. 扫描现有概念库
+            st.write("🔍 扫描现有概念库...")
+            self.concept_manager.scan_existing_notes()
+            existing_concepts = self.concept_manager.get_all_concepts_for_ai()
+            
+            # 3. 生成笔记
+            with st.spinner("🤖 AI正在根据分析结果生成笔记..."):
+                all_notes = step2_processor.generate_notes_step2(
+                    analysis_result, subtitle_content, metadata
+                )
+            
+            if not all_notes:
+                st.error("❌ 第二步笔记生成失败")
+                return []
+            
+            st.success(f"✅ 生成了 {len(all_notes)} 个笔记")
+            
+            # 4. AI增强：优化概念关系
+            st.write("🔗 AI正在优化概念关系...")
+            enhanced_notes = step2_processor.enhance_concept_relationships(
+                all_notes, existing_concepts
+            )
+            
+            # 5. 确定输出路径并生成文件
+            output_path = Config.get_output_path(metadata['subject'])
+            os.makedirs(output_path, exist_ok=True)
+            
+            st.write(f"📝 生成笔记文件到: {output_path}")
+            created_files = []
+            for note_data in enhanced_notes:
+                file_path = self.note_generator.create_note_file(
+                    note_data, 
+                    output_path
+                )
+                created_files.append(file_path)
+            
+            # 6. 更新概念数据库
+            self.concept_manager.update_database(enhanced_notes)
+            
+            # 7. 自动进行时间戳链接化处理
+            if metadata.get('course_url'):
+                st.info("🔗 自动进行时间戳链接化处理...")
+                self.timestamp_linker.process_subject_notes(metadata['subject'])
+                st.success("✅ 时间戳链接化处理完成")
+            
+            render_success_box(f"成功生成 {len(created_files)} 个笔记文件")
+            st.write(f"📁 保存位置: {output_path}")
+            
+            st.subheader("📋 生成的笔记:")
+            for file_path in created_files:
+                filename = os.path.basename(file_path)
+                st.markdown(f"  - `{filename}`")
+            
+            return created_files
+            
+        except Exception as e:
+            st.error(f"❌ 第二步处理失败: {e}")
+            st.exception(e)
+            return []
+
     def process_ai_formatted_text(self, ai_text: str, course_url: str, selected_subject: str, source_info: str):
         """
         处理AI格式的文本，直接解析并生成笔记
@@ -118,7 +284,9 @@ class StreamlitLawExamNoteProcessor:
         try:
             # 1. 解析AI格式的文本
             st.write("📖 解析文本内容...")
-            all_notes = self.subtitle_ai_processor._parse_ai_response(ai_text)
+            # 创建临时处理器用于解析
+            temp_processor = AIProcessor("dummy", "dummy", "dummy")
+            all_notes = temp_processor._parse_ai_response(ai_text)
             
             if not all_notes:
                 render_error_box("未能解析到有效的笔记格式，请检查文本格式")
@@ -182,109 +350,6 @@ class StreamlitLawExamNoteProcessor:
                 self.timestamp_linker.process_subject_notes(selected_subject)
                 st.success("✅ 时间戳链接化处理完成。")
             
-            return created_files
-            
-        except Exception as e:
-            render_error_box(f"处理过程中出错: {e}")
-            st.exception(e)
-            return []
-
-    def process_subtitle_file_streamlit(
-        self,
-        uploaded_file: "StreamlitUploadedFile",
-        course_url: str,
-        selected_subject: str,
-        source_info: str
-    ) -> List[str]:
-        """
-        处理单个字幕文件的完整流程，适配Streamlit界面
-
-        Args:
-            uploaded_file: Streamlit上传的字幕文件对象
-            course_url: 课程视频URL（用于时间戳链接）
-            selected_subject: 选择的科目名称
-            source_info: 笔记来源信息
-
-        Returns:
-            List[str]: 生成的笔记文件路径列表
-        """
-        st.info("🚀 开始处理字幕文件...")
-        
-        try:
-            # 1. 从UploadedFile读取字幕内容
-            st.write("📖 读取字幕文件...")
-            subtitle_content = uploaded_file.getvalue().decode("utf-8")
-            
-            if not subtitle_content.strip():
-                render_warning_box("字幕文件为空")
-                return []
-            
-            # 确定输出路径
-            output_path = Config.get_output_path(selected_subject)
-            os.makedirs(output_path, exist_ok=True)
-            
-            # 模拟subtitle_info，加入course_url和source
-            subtitle_info = {
-                'file_path': uploaded_file.name,
-                'course_url': course_url,
-                'subject': selected_subject,
-                'output_path': output_path,
-                'source': source_info
-            }
-            
-            # 2. 扫描现有概念库
-            st.write("🔍 扫描现有概念库...")
-            self.concept_manager.scan_existing_notes()
-            existing_concepts = self.concept_manager.get_all_concepts_for_ai()
-            
-            # 3. AI处理：一次性提取所有知识点
-            st.write("🤖 AI正在分析字幕内容，提取知识点...")
-            all_notes = self.subtitle_ai_processor.extract_all_knowledge_points(
-                subtitle_content, subtitle_info
-            )
-            
-            if not all_notes:
-                render_warning_box("未能提取到知识点，请检查字幕内容")
-                return []
-            
-            st.success(f"✅ 提取到 {len(all_notes)} 个知识点")
-            
-            # 4. AI增强：优化概念关系
-            st.write("🔗 AI正在优化概念关系...")
-            enhanced_notes = self.concept_enhancement_ai_processor.enhance_concept_relationships(
-                all_notes, existing_concepts
-            )
-            
-            # 5. 生成笔记文件
-            st.write(f"📝 生成笔记文件到: {output_path}")
-            created_files = []
-            for note_data in enhanced_notes:
-                if 'yaml_front_matter' not in note_data:
-                    note_data['yaml_front_matter'] = {}
-                note_data['yaml_front_matter']['course_url'] = course_url
-                
-                file_path = self.note_generator.create_note_file(
-                    note_data, 
-                    output_path
-                )
-                created_files.append(file_path)
-            
-            # 6. 更新概念数据库
-            self.concept_manager.update_database(enhanced_notes)
-            
-            render_success_box(f"成功生成 {len(created_files)} 个笔记文件")
-            st.write(f"📁 保存位置: {output_path}")
-            
-            st.subheader("📋 生成的笔记:")
-            for file_path in created_files:
-                filename = os.path.basename(file_path)
-                st.markdown(f"  - `{filename}`")
-            
-            # 7. 自动进行时间戳链接化处理
-            st.info("\n🔗 自动进行时间戳链接化处理...")
-            self.timestamp_linker.process_subject_notes(selected_subject)
-            st.success("✅ 时间戳链接化处理完成。")
-
             return created_files
             
         except Exception as e:
@@ -465,6 +530,17 @@ if 'current_concept_config' not in st.session_state:
         'model': Config.CONCEPT_ENHANCEMENT_MODEL or ''
     }
 
+# 初始化两步走处理状态
+if 'two_step_state' not in st.session_state:
+    st.session_state.two_step_state = {
+        'step': 0,  # 0: 未开始, 1: 第一步完成, 2: 第二步完成
+        'analysis_result': None,
+        'subtitle_content': None,
+        'metadata': None,
+        'step1_config': None,
+        'step2_config': None
+    }
+
 # 检查并处理缺失的环境变量
 missing_env_vars = Config.check_and_get_missing_env()
 
@@ -499,8 +575,13 @@ else:
     if menu_choice == "📄 处理新字幕文件":
         st.header("处理新字幕文件")
         
-        # 使用新的UI组件
-        render_feature_description("功能说明", AppConstants.FEATURE_DESCRIPTIONS["📄 处理新字幕文件"])
+        # 功能描述
+        render_feature_description("两步走处理方式", AppConstants.FEATURE_DESCRIPTIONS["📄 处理新字幕文件"])
+        
+        # 显示两步走优势
+        with st.expander("🎯 两步走处理的优势", expanded=False):
+            for advantage in AppConstants.TWO_STEP_PROCESSING["advantages"]:
+                st.markdown(f"- {advantage}")
         
         # 文件上传
         uploaded_file = render_file_uploader(
@@ -545,14 +626,150 @@ else:
         subjects = list(Config.SUBJECT_MAPPING.keys())
         selected_subject = render_subject_selection(subjects, key="selected_subject_subtitle")
         
-        # 处理按钮
-        if render_enhanced_button("🚀 开始处理", button_type="primary", use_container_width=True):
-            if uploaded_file is not None:
-                final_source = source_input 
-                with st.spinner(UIConstants.MESSAGES['processing']):
-                    processor.process_subtitle_file_streamlit(uploaded_file, course_url, selected_subject, final_source)
+        # AI模型选择
+        st.subheader("🤖 AI模型配置")
+        col1, col2 = st.columns(UIConfig.COLUMN_LAYOUTS["two_equal"])
+        
+        with col1:
+            st.markdown("### 第一步：知识点分析")
+            step1_saved_configs = st.session_state.model_configs.get('subtitle', {})
+            step1_config = render_model_selector(
+                "subtitle",
+                step1_saved_configs,
+                st.session_state.current_subtitle_config,
+                "🔍 选择分析模型",
+                AppConstants.HELP_TEXTS["step1_model"],
+                key="step1_model_selector"
+            )
+        
+        with col2:
+            st.markdown("### 第二步：笔记生成")
+            step2_saved_configs = st.session_state.model_configs.get('subtitle', {})
+            step2_config = render_model_selector(
+                "subtitle", 
+                step2_saved_configs,
+                st.session_state.current_subtitle_config,
+                "📝 选择生成模型",
+                AppConstants.HELP_TEXTS["step2_model"],
+                key="step2_model_selector"
+            )
+        
+        # 显示步骤说明
+        with st.expander("📖 步骤说明", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("#### 🔍 第一步：知识点分析")
+                for desc in AppConstants.TWO_STEP_PROCESSING["step_descriptions"]["step1"]:
+                    st.markdown(f"- {desc}")
+            with col2:
+                st.markdown("#### 📝 第二步：笔记生成")
+                for desc in AppConstants.TWO_STEP_PROCESSING["step_descriptions"]["step2"]:
+                    st.markdown(f"- {desc}")
+        
+        # 根据当前状态显示不同的界面
+        two_step_state = st.session_state.two_step_state
+        
+        if two_step_state['step'] == 0:
+            # 初始状态：显示开始处理按钮
+            render_two_step_progress(1, False, False)
+            
+            if render_enhanced_button("🚀 开始第一步分析", button_type="primary", use_container_width=True):
+                if uploaded_file is not None:
+                    final_source = source_input
+                    with st.spinner("🔍 正在进行第一步分析..."):
+                        result = processor.process_two_step_subtitle_file(
+                            uploaded_file, course_url, selected_subject, final_source,
+                            step1_config, step2_config
+                        )
+                    
+                    if result['status'] == 'step1_complete':
+                        st.session_state.two_step_state = {
+                            'step': 1,
+                            'analysis_result': result['analysis_result'],
+                            'subtitle_content': result['subtitle_content'], 
+                            'metadata': result['metadata'],
+                            'step1_config': result['step1_config'],
+                            'step2_config': result['step2_config']
+                        }
+                        st.rerun()
+                    else:
+                        render_error_box(result.get('message', '第一步处理失败'))
+                else:
+                    render_warning_box(AppConstants.ERROR_MESSAGES["no_file"])
+        
+        elif two_step_state['step'] == 1:
+            # 第一步完成：显示结果查看和编辑
+            render_two_step_progress(1, True, False)
+            
+            # 检查是否进入编辑模式
+            if 'edit_mode' not in st.session_state:
+                st.session_state.edit_mode = False
+            
+            if not st.session_state.edit_mode:
+                # 显示第一步结果
+                viewer_result = render_step1_result_viewer(two_step_state['analysis_result'])
+                
+                if viewer_result['action'] == 'continue':
+                    # 继续第二步
+                    with st.spinner("📝 正在进行第二步笔记生成..."):
+                        created_files = processor.process_step2_generation(
+                            two_step_state['analysis_result'],
+                            two_step_state['subtitle_content'],
+                            two_step_state['metadata'],
+                            two_step_state['step2_config']
+                        )
+                    
+                    if created_files:
+                        st.session_state.two_step_state['step'] = 2
+                        render_success_box("🎉 两步走处理全部完成！")
+                        st.balloons()
+                    else:
+                        render_error_box("第二步笔记生成失败")
+                
+                elif viewer_result['action'] == 'edit':
+                    # 进入编辑模式
+                    st.session_state.edit_mode = True
+                    st.rerun()
+                
+                elif viewer_result['action'] == 'retry':
+                    # 重新执行第一步
+                    st.session_state.two_step_state['step'] = 0
+                    st.rerun()
+            
             else:
-                render_warning_box(AppConstants.ERROR_MESSAGES["no_file"])
+                # 编辑模式
+                editor_result = render_step1_result_editor(two_step_state['analysis_result'])
+                
+                if editor_result['action'] == 'save':
+                    # 保存编辑结果
+                    st.session_state.two_step_state['analysis_result'] = editor_result['result']
+                    st.session_state.edit_mode = False
+                    render_success_box("✅ 修改已保存")
+                    st.rerun()
+                
+                elif editor_result['action'] == 'cancel':
+                    # 取消编辑
+                    st.session_state.edit_mode = False
+                    st.rerun()
+        
+        elif two_step_state['step'] == 2:
+            # 两步都完成
+            render_two_step_progress(2, True, True)
+            render_success_box("🎉 两步走处理全部完成！")
+            
+            # 重置按钮
+            if st.button("🔄 处理新文件", use_container_width=True):
+                st.session_state.two_step_state = {
+                    'step': 0,
+                    'analysis_result': None,
+                    'subtitle_content': None,
+                    'metadata': None,
+                    'step1_config': None,
+                    'step2_config': None
+                }
+                if 'edit_mode' in st.session_state:
+                    del st.session_state.edit_mode
+                st.rerun()
 
     elif menu_choice == "✍️ 格式化文本直录":
         st.header("格式化文本直录")
@@ -623,7 +840,8 @@ else:
             with st.expander(UIConfig.EXPANDER_CONFIG["preview_result"]["title"], 
                            expanded=UIConfig.EXPANDER_CONFIG["preview_result"]["expanded"]):
                 try:
-                    preview_notes = processor.subtitle_ai_processor._parse_ai_response(ai_text)
+                    temp_processor = AIProcessor("dummy", "dummy", "dummy")
+                    preview_notes = temp_processor._parse_ai_response(ai_text)
                     if preview_notes:
                         render_success_box(f"可以解析到 {len(preview_notes)} 个笔记")
                         for i, note in enumerate(preview_notes, 1):
@@ -655,6 +873,21 @@ else:
 
         if not processor.concept_manager.load_database_from_file():
             render_warning_box(AppConstants.WARNING_MESSAGES["no_database"])
+        
+        # AI模型选择（只显示概念增强模型）
+        st.subheader("🤖 概念增强模型配置")
+        concept_saved_configs = st.session_state.model_configs.get('concept', {})
+        selected_concept_config = render_model_selector(
+            "concept",
+            concept_saved_configs,
+            st.session_state.current_concept_config,
+            "🔗 选择概念增强模型",
+            AppConstants.HELP_TEXTS["enhancement_method"],
+            key="concept_enhancement_selector"
+        )
+        
+        # 临时更新concept_enhancement_ai_processor
+        processor.concept_enhancement_ai_processor = processor.create_ai_processor_from_config(selected_concept_config)
         
         # 使用新的UI组件
         enhance_method = render_enhancement_method_selection()
@@ -829,11 +1062,10 @@ else:
                         'base_url': result['base_url'],
                         'model': result['model']
                     }
-                    # 更新Config和处理器
+                    # 更新Config
                     Config.SUBTITLE_PROCESSING_API_KEY = result['api_key']
                     Config.SUBTITLE_PROCESSING_BASE_URL = result['base_url']
                     Config.SUBTITLE_PROCESSING_MODEL = result['model']
-                    processor.subtitle_ai_processor = AIProcessor(result['api_key'], result['base_url'], result['model'])
                     render_success_box(f"已切换到配置: {result['config_name'] or '临时配置'}")
                 else:
                     render_error_box("请填写所有字段")
@@ -910,6 +1142,18 @@ else:
                 st.markdown("#### 🎯 专业特化模型")
                 for model in ModelConfig.RECOMMENDED_MODELS["specialized"]:
                     st.markdown(f"- {model}")
+                
+                # 两步走模型推荐
+                st.markdown("#### 🔍 两步走模型推荐")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**第一步分析推荐:**")
+                    for model in ModelConfig.RECOMMENDED_MODELS["step_recommendations"]["step1"]:
+                        st.markdown(f"- {model}")
+                with col2:
+                    st.markdown("**第二步生成推荐:**")
+                    for model in ModelConfig.RECOMMENDED_MODELS["step_recommendations"]["step2"]:
+                        st.markdown(f"- {model}")
             
             # 模型测试
             st.markdown("#### 🧪 模型连接测试")
@@ -989,7 +1233,7 @@ else:
                                 os.remove(bge_cache_file)
                             
                             # 重置session state
-                            for key in ['model_configs', 'current_subtitle_config', 'current_concept_config']:
+                            for key in ['model_configs', 'current_subtitle_config', 'current_concept_config', 'two_step_state']:
                                 if key in st.session_state:
                                     del st.session_state[key]
                             

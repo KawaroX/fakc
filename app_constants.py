@@ -1,5 +1,5 @@
 """
-应用常量配置文件 - 完整版本（添加图标）
+应用常量配置文件 - 完整版本（添加两步走相关常量）
 包含所有应用级别的常量、配置和文本内容
 """
 
@@ -7,7 +7,7 @@ class AppConstants:
     """应用常量类"""
     
     # 版本信息
-    VERSION = "2.2.1"
+    VERSION = "2.3.0"
     APP_TITLE = "法考字幕转Obsidian笔记处理器"
     DESCRIPTION = "基于AI的法考笔记智能生成和管理系统"
     AUTHOR = "FAKC Team"
@@ -31,10 +31,11 @@ class AppConstants:
     # 功能描述
     FEATURE_DESCRIPTIONS = {
         "📄 处理新字幕文件": [
-            "支持多种字幕文件格式：.lrc, .srt, .vtt, .txt, .ass, .bcc",
-            "AI自动提取知识点，生成结构化笔记",
-            "自动增强概念关系，建立知识网络", 
-            "支持时间戳链接，方便回看视频原文"
+            "🎯 两步走处理：第一步AI分析知识点架构，第二步生成结构化笔记",
+            "🔧 可选择不同AI模型：分析和生成步骤可使用不同的AI模型",
+            "👁️ 第一步结果预览：查看分析结果，可编辑修改后再继续",
+            "📝 支持多种字幕格式：.lrc, .srt, .vtt, .txt, .ass, .bcc",
+            "🔗 自动时间戳链接：生成可跳转的视频链接"
         ],
         "✍️ 格式化文本直录": [
             "直接粘贴AI生成的笔记格式文本",
@@ -86,6 +87,34 @@ class AppConstants:
         ]
     }
     
+    # 两步走处理相关常量
+    TWO_STEP_PROCESSING = {
+        "step_names": [
+            "第一步：知识点分析与架构构建",
+            "第二步：详细笔记整理与生成"
+        ],
+        "step_descriptions": {
+            "step1": [
+                "🔍 深度分析字幕内容，识别所有法律概念",
+                "📋 构建详细的知识点架构和关系图谱", 
+                "💡 保留老师的教学风格和重要表述",
+                "🎯 为每个概念标注重要性和考试相关度"
+            ],
+            "step2": [
+                "📝 基于第一步分析结果生成完整笔记",
+                "🔗 建立精准的概念关联和双链关系",
+                "📚 创建符合Obsidian格式的标准笔记",
+                "⚡ 自动添加时间戳和课程链接"
+            ]
+        },
+        "advantages": [
+            "🎯 精确控制：每步都可单独调优，确保最佳效果",
+            "👁️ 透明可控：第一步结果可预览和编辑",
+            "🔧 灵活配置：不同步骤可使用不同AI模型",
+            "🚀 效率优化：减少重复处理，提高成功率"
+        ]
+    }
+    
     # AI格式示例
     AI_FORMAT_EXAMPLE = """=== NOTE_SEPARATOR ===
 YAML:
@@ -123,6 +152,31 @@ CONTENT:
 
 === NOTE_SEPARATOR ===
 [下一个笔记...]"""
+
+    # 第一步分析结果示例
+    STEP1_ANALYSIS_EXAMPLE = """{
+  "course_overview": {
+    "main_topic": "物权法基础理论",
+    "total_duration": "45:30",
+    "teaching_style": "理论结合实例，重视法条解读",
+    "key_emphasis": ["物权的排他性", "善意取得制度", "登记对抗主义"],
+    "difficulty_level": "中等"
+  },
+  "knowledge_points": [
+    {
+      "id": "KP001",
+      "concept_name": "物权的概念",
+      "concept_type": "定义性概念",
+      "time_range": "02:15.30-05:45.60",
+      "importance_level": "高",
+      "core_definition": {
+        "teacher_original": "物权是指权利人依法对特定的物享有直接支配和排他的权利",
+        "key_keywords": ["直接支配", "排他性", "特定物"],
+        "context": "在讲解物权与债权区别时的核心定义"
+      }
+    }
+  ]
+}"""
     
     # 增强方式选项
     ENHANCEMENT_METHODS = [
@@ -166,7 +220,12 @@ CONTENT:
         "model_config": "配置AI模型的API密钥、基础URL和模型名称",
         "enhancement_method": "选择概念关系增强的方式，BGE混合检索效果更好",
         "repair_scope": "选择双链修复的范围，建议先测试单个科目",
-        "timestamp_processing": "将笔记中的时间戳转换为可点击的视频链接"
+        "timestamp_processing": "将笔记中的时间戳转换为可点击的视频链接",
+        "two_step_processing": "两步走处理方式：先分析知识点架构，再生成详细笔记",
+        "step1_model": "用于分析字幕内容和构建知识点架构的AI模型",
+        "step2_model": "用于根据分析结果生成最终笔记的AI模型",
+        "step1_result": "查看和编辑第一步的分析结果，确认无误后继续第二步",
+        "model_selection": "选择已保存的AI模型配置，可在模型配置页面管理更多方案"
     }
     
     # 占位符文本
@@ -195,7 +254,10 @@ CONTENT:
         "large_dataset": "数据量较大，处理可能需要较长时间",
         "api_key_missing": "API密钥缺失或无效，请检查配置",
         "network_required": "此操作需要网络连接",
-        "disk_space": "请确保有足够的磁盘空间"
+        "disk_space": "请确保有足够的磁盘空间",
+        "step1_failed": "第一步分析失败，请检查模型配置和网络连接",
+        "step2_failed": "第二步生成失败，请检查模型配置或尝试编辑第一步结果",
+        "different_models": "两个步骤使用了不同的AI模型，请确保都能正常工作"
     }
     
     # 成功消息
@@ -214,7 +276,11 @@ CONTENT:
         "links_processed": "链接处理完成",
         "timestamp_converted": "时间戳转换完成",
         "database_scanned": "数据库扫描完成",
-        "operation_successful": "操作执行成功"
+        "operation_successful": "操作执行成功",
+        "step1_complete": "第一步分析完成！",
+        "step2_complete": "第二步笔记生成完成！",
+        "analysis_saved": "分析结果已保存",
+        "two_step_complete": "两步走处理全部完成！"
     }
     
     # 错误消息
@@ -233,7 +299,12 @@ CONTENT:
         "timeout_error": "操作超时，请重试",
         "config_error": "配置错误，请检查设置",
         "database_error": "数据库操作失败",
-        "unknown_error": "未知错误，请联系技术支持"
+        "unknown_error": "未知错误，请联系技术支持",
+        "step1_analysis_empty": "第一步分析结果为空，请检查字幕内容和模型配置",
+        "step1_json_invalid": "第一步返回的JSON格式无效",
+        "step2_generation_failed": "第二步笔记生成失败",
+        "model_config_missing": "缺少必要的模型配置",
+        "no_saved_configs": "没有已保存的模型配置，请先在模型配置页面创建"
     }
     
     # 信息消息
@@ -247,7 +318,15 @@ CONTENT:
         "updating_relationships": "正在更新关系...",
         "cleaning_up": "正在清理临时文件...",
         "preparing_output": "正在准备输出...",
-        "validating_data": "正在验证数据..."
+        "validating_data": "正在验证数据...",
+        "step1_starting": "🔍 开始第一步：知识点分析与架构构建...",
+        "step1_processing": "🤖 AI正在深度分析字幕内容...",
+        "step1_completed": "✅ 第一步分析完成，请查看结果",
+        "step2_starting": "📝 开始第二步：详细笔记整理与生成...",
+        "step2_processing": "🤖 AI正在根据分析结果生成笔记...",
+        "step2_completed": "✅ 第二步笔记生成完成",
+        "using_different_models": "ℹ️ 两个步骤使用了不同的AI模型",
+        "model_switching": "🔄 正在切换AI模型配置..."
     }
     
     # 确认消息
@@ -258,7 +337,10 @@ CONTENT:
         "clear_cache": "确认清空缓存？",
         "reset_database": "确认重置数据库？所有数据将丢失。",
         "overwrite_file": "文件已存在，是否覆盖？",
-        "large_operation": "这是一个大型操作，确认继续？"
+        "large_operation": "这是一个大型操作，确认继续？",
+        "step1_retry": "确认重新执行第一步分析？当前结果将被覆盖。",
+        "step2_with_edited": "您编辑了第一步结果，确认使用编辑后的结果继续第二步？",
+        "different_model_step2": "第二步将使用不同的AI模型，确认继续？"
     }
 
 class UIConfig:
@@ -282,7 +364,10 @@ class UIConfig:
         "config_buttons": [3, 1],
         "nav_buttons": [1, 2, 1],
         "stats_display": [1, 1, 1, 1],
-        "action_buttons": [1, 1, 1]
+        "action_buttons": [1, 1, 1],
+        "model_selection": [1, 1],
+        "step_actions": [1, 1, 1],
+        "step_progress": [1, 1]
     }
     
     # 表单配置
@@ -298,6 +383,13 @@ class UIConfig:
             "stop_btn_text": "⏹️ 停止处理",
             "pause_btn_text": "⏸️ 暂停",
             "resume_btn_text": "▶️ 继续"
+        },
+        "two_step": {
+            "step1_btn_text": "🔍 开始第一步分析",
+            "step2_btn_text": "📝 开始第二步生成",
+            "retry_step1_btn_text": "🔄 重新分析",
+            "edit_result_btn_text": "✏️ 编辑结果",
+            "continue_step2_btn_text": "➡️ 继续第二步"
         },
         "repair": {
             "repair_btn_text": "🔧 开始修复",
@@ -316,6 +408,14 @@ class UIConfig:
             "title": "👁️ 预览解析结果", 
             "expanded": False
         },
+        "step1_analysis_example": {
+            "title": "📋 查看第一步分析结果示例",
+            "expanded": False
+        },
+        "two_step_advantages": {
+            "title": "🎯 两步走处理的优势",
+            "expanded": False
+        },
         "bge_params": {
             "title": "⚙️ BGE混合检索参数配置",
             "expanded": False
@@ -331,6 +431,14 @@ class UIConfig:
         "metadata": {
             "title": "📌 元数据",
             "expanded": False
+        },
+        "model_details": {
+            "title": "📋 模型配置详情",
+            "expanded": False
+        },
+        "step_descriptions": {
+            "title": "📖 步骤说明",
+            "expanded": True
         }
     }
     
@@ -342,7 +450,9 @@ class UIConfig:
         "sidebar_height": 500,
         "card_min_height": 120,
         "button_width": "100%",
-        "progress_height": 10
+        "progress_height": 10,
+        "step1_result_height": 500,
+        "step1_editor_height": 400
     }
     
     # 动画配置
@@ -366,8 +476,14 @@ class ModelConfig:
     # 默认模型配置
     DEFAULT_MODELS = {
         "subtitle_processing": {
-            "base_url": "https://openrouter.ai/api/v1",
-            "model": "deepseek/deepseek-r1-0528:free"
+            "step1": {
+                "base_url": "https://openrouter.ai/api/v1",
+                "model": "deepseek/deepseek-r1-0528:free"
+            },
+            "step2": {
+                "base_url": "https://openrouter.ai/api/v1",
+                "model": "deepseek/deepseek-r1-0528:free"
+            }
         },
         "concept_enhancement": {
             "base_url": "https://openrouter.ai/api/v1", 
@@ -378,8 +494,8 @@ class ModelConfig:
     # 推荐模型
     RECOMMENDED_MODELS = {
         "high_performance": [
-            "DeepSeek-R1 - 性价比极高，中文理解能力强",
-            "Claude 4 (Sonnet/Opus) - 逻辑推理能力出色", 
+            "DeepSeek-R1 - 性价比极高，中文理解能力强，适合分析步骤",
+            "Claude 4 (Sonnet/Opus) - 逻辑推理能力出色，适合结构化生成", 
             "GPT-4.1 - 稳定可靠，对法律术语理解深入"
         ],
         "budget_friendly": [
@@ -388,10 +504,22 @@ class ModelConfig:
             "Qwen/Qwen2.5-72B:free - 免费大模型"
         ],
         "specialized": [
-            "Claude-3.5-Sonnet - 最佳逻辑推理",
-            "GPT-4-Turbo - 最快响应速度",
-            "Gemini-1.5-Pro - 最大上下文长度"
-        ]
+            "Claude-3.5-Sonnet - 最佳逻辑推理，适合第一步分析",
+            "GPT-4-Turbo - 最快响应速度，适合第二步生成",
+            "Gemini-1.5-Pro - 最大上下文长度，适合长文本处理"
+        ],
+        "step_recommendations": {
+            "step1": [
+                "Claude-3.5-Sonnet - 分析能力强，能准确识别知识点架构",
+                "DeepSeek-R1 - 中文理解佳，善于提取关键信息",
+                "GPT-4 - 稳定可靠，结构化输出质量高"
+            ],
+            "step2": [
+                "GPT-4-Turbo - 生成速度快，格式规范",
+                "Claude-Opus - 创作能力强，内容详实",
+                "Gemini-Pro - 支持长上下文，适合复杂笔记生成"
+            ]
+        }
     }
     
     # 模型参数配置
@@ -421,12 +549,21 @@ class ProcessingConfig:
     
     # 处理模式
     PROCESSING_MODES = {
-        "single_file": "单文件处理",
-        "batch_files": "批量文件处理",
+        "single_step": "单步处理（传统模式）",
+        "two_step": "两步走处理（推荐）",
         "ai_text": "AI文本处理",
         "enhancement": "概念增强",
         "repair": "双链修复",
         "timestamp": "时间戳处理"
+    }
+    
+    # 两步走配置
+    TWO_STEP_CONFIG = {
+        "step1_timeout": 300,  # 5分钟
+        "step2_timeout": 600,  # 10分钟
+        "allow_edit": True,
+        "auto_continue": False,
+        "save_intermediate": True
     }
     
     # 质量等级
@@ -487,25 +624,28 @@ class DatabaseConfig:
         "markdown": "概念数据库.md",
         "json": "概念数据库.json",
         "cache": "概念嵌入缓存_BGE.json",
-        "backup": "概念数据库_backup_{timestamp}.json"
+        "backup": "概念数据库_backup_{timestamp}.json",
+        "step1_cache": "第一步分析缓存_{timestamp}.json"
     }
     
     # 数据库结构版本
-    DATABASE_VERSION = "1.2"
+    DATABASE_VERSION = "1.3"
     
     # 备份配置
     BACKUP_CONFIG = {
         "auto_backup": True,
         "max_backups": 10,
         "backup_interval": 24 * 60 * 60,  # 24小时
-        "compress": True
+        "compress": True,
+        "backup_step1_results": True
     }
     
     # 清理配置
     CLEANUP_CONFIG = {
         "max_cache_age": 7 * 24 * 60 * 60,  # 7天
         "max_log_files": 20,
-        "cleanup_on_start": True
+        "cleanup_on_start": True,
+        "cleanup_step1_cache": True
     }
 
 class ValidationConfig:
@@ -525,6 +665,25 @@ class ValidationConfig:
         "max_content_length": 10 * 1024 * 1024,  # 10MB
         "required_separators": ["=== NOTE_SEPARATOR ==="],
         "required_sections": ["YAML:", "CONTENT:"]
+    }
+    
+    # 第一步结果验证规则
+    STEP1_VALIDATION = {
+        "required_fields": [
+            "course_overview",
+            "knowledge_points",
+            "concept_structure",
+            "teaching_insights"
+        ],
+        "knowledge_point_fields": [
+            "id",
+            "concept_name", 
+            "concept_type",
+            "importance_level",
+            "core_definition"
+        ],
+        "min_knowledge_points": 1,
+        "max_knowledge_points": 100
     }
     
     # API验证规则
@@ -559,7 +718,8 @@ class LoggingConfig:
         "app": "logs/app.log",
         "error": "logs/error.log",
         "api": "logs/api.log",
-        "performance": "logs/performance.log"
+        "performance": "logs/performance.log",
+        "two_step": "logs/two_step_processing.log"
     }
 
 class SecurityConfig:
@@ -598,7 +758,8 @@ class PerformanceConfig:
         "enable_disk_cache": True,
         "cache_ttl": 3600,  # 1小时
         "max_cache_size": 100 * 1024 * 1024,  # 100MB
-        "cleanup_interval": 300  # 5分钟
+        "cleanup_interval": 300,  # 5分钟
+        "cache_step1_results": True
     }
     
     # 并发配置
