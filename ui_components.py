@@ -7,6 +7,7 @@ import streamlit as st
 import json
 import yaml
 from typing import List, Dict, Any, Optional, Callable
+from intelligent_segmenter import Segment
 
 def fix_material_icons_in_text(text: str) -> str:
     """
@@ -984,6 +985,640 @@ def render_note_browser(processor, config_class):
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.info("👈 请在左侧选择科目并点击笔记进行查看")
+
+def render_segmentation_summary(segments: List[Segment], original_token_count: int):
+    """
+    渲染智能分段结果摘要
+    
+    Args:
+        segments: 分段结果列表
+        original_token_count: 原始token数量
+    """
+    if not segments:
+        st.warning("⚠️ 没有分段结果")
+        return
+    
+    total_tokens = sum(seg.token_count for seg in segments)
+    reduction_ratio = (1 - total_tokens / original_token_count) * 100 if original_token_count > 0 else 0
+    
+    # 统计卡片
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="分段数量",
+            value=len(segments),
+            help="智能分段后的片段总数"
+        )
+    
+    with col2:
+        st.metric(
+            label="Token减少",
+            value=f"{reduction_ratio:.1f}%",
+            delta=f"-{original_token_count - total_tokens}",
+            help="相比原始字幕的token减少比例"
+        )
+    
+    with col3:
+        st.metric(
+            label="原始Tokens",
+            value=f"{original_token_count:,}",
+            help="原始字幕的预估token数量"
+        )
+    
+    with col4:
+        st.metric(
+            label="分段后Tokens", 
+            value=f"{total_tokens:,}",
+            help="分段处理后的预估token数量"
+        )
+    
+    # 效果评估
+    if reduction_ratio >= 60:
+        st.success(f"🎉 分段效果优秀！Token减少了{reduction_ratio:.1f}%")
+    elif reduction_ratio >= 30:
+        st.info(f"👍 分段效果良好！Token减少了{reduction_ratio:.1f}%")
+    elif reduction_ratio >= 10:
+        st.warning(f"⚠️ 分段效果一般，Token减少了{reduction_ratio:.1f}%")
+    else:
+        st.error(f"❌ 分段效果较差，仅减少了{reduction_ratio:.1f}%")
+
+def render_segment_details(segments: List[Segment], show_content: bool = False):
+    """
+    渲染分段详细信息
+    
+    Args:
+        segments: 分段结果列表
+        show_content: 是否显示分段内容
+    """
+    if not segments:
+        return
+    
+    st.subheader("📊 分段详情")
+    
+    for i, segment in enumerate(segments, 1):
+        with st.expander(f"分段 {i}: {segment.time_range.start:.1f}s - {segment.time_range.end:.1f}s"):
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.write("**基本信息:**")
+                st.write(f"- 时间范围: {segment.time_range.start:.1f}s - {segment.time_range.end:.1f}s")
+                st.write(f"- 时长: {segment.time_range.duration:.1f}s")
+                st.write(f"- Token数量: {segment.token_count}")
+                st.write(f"- 关联知识点: {len(segment.knowledge_points)}个")
+                
+                if segment.knowledge_points:
+                    st.write("**关联知识点ID:**")
+                    for kp_id in segment.knowledge_points:
+                        st.write(f"  - `{kp_id}`")
+            
+            with col2:
+                st.write("**缓冲区信息:**")
+                buffer_info = segment.buffer_info
+                
+                if buffer_info.get('type') == 'fallback':
+                    st.warning("⚠️ Fallback模式")
+                    st.caption(f"原因: {buffer_info.get('reason', '未知')}")
+                elif buffer_info.get('type') == 'full_text':
+                    st.info("📄 完整文本模式")
+                    st.caption(f"原因: {buffer_info.get('reason', '未知')}")
+                else:
+                    st.write(f"- 匹配行数: {buffer_info.get('matched_lines', 'N/A')}")
+                    st.write(f"- 缓冲区: ±{buffer_info.get('buffer_added', 0)}s")
+                    
+                    first_ts = buffer_info.get('first_timestamp')
+                    last_ts = buffer_info.get('last_timestamp')
+                    if first_ts is not None and last_ts is not None:
+                        st.write(f"- 实际范围: {first_ts:.1f}s - {last_ts:.1f}s")
+            
+            # 显示分段内容
+            if show_content and segment.text.strip():
+                st.write("**分段内容:**")
+                with st.container():
+                    # 限制显示长度
+                    display_text = segment.text
+                    if len(display_text) > 500:
+                        display_text = display_text[:500] + "..."
+                    
+                    st.text_area(
+                        f"分段{i}内容",
+                        value=display_text,
+                        height=150,
+                        disabled=True,
+                        key=f"segment_content_{i}"
+                    )
+
+def render_segmentation_controls():
+    """
+    渲染分段参数控制界面
+    
+    Returns:
+        分段参数配置字典
+    """
+    st.subheader("🔧 智能分段参数配置")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        buffer_seconds = st.slider(
+            "缓冲区大小（秒）",
+            min_value=0.0,
+            max_value=60.0,
+            value=30.0,
+            step=5.0,
+            help="为每个时间段前后添加的缓冲时间"
+        )
+        
+        use_segmentation = st.checkbox(
+            "启用智能分段",
+            value=True,
+            help="是否使用智能分段来减少token使用"
+        )
+    
+    with col2:
+        max_gap_seconds = st.slider(
+            "最大间隔（秒）",
+            min_value=0.0,
+            max_value=30.0,
+            value=5.0,
+            step=1.0,
+            help="小于此值的时间段将合并"
+        )
+        
+        show_segment_details = st.checkbox(
+            "显示分段详情",
+            value=False,
+            help="是否在处理过程中显示详细的分段信息"
+        )
+    
+    # 预设配置
+    st.write("**预设配置:**")
+    preset_col1, preset_col2, preset_col3 = st.columns(3)
+    
+    with preset_col1:
+        if st.button("🚀 高效模式", use_container_width=True):
+            st.session_state.buffer_seconds = 20.0
+            st.session_state.max_gap_seconds = 3.0
+            st.rerun()
+    
+    with preset_col2:
+        if st.button("⚖️ 平衡模式", use_container_width=True):
+            st.session_state.buffer_seconds = 30.0
+            st.session_state.max_gap_seconds = 5.0
+            st.rerun()
+    
+    with preset_col3:
+        if st.button("🔍 精准模式", use_container_width=True):
+            st.session_state.buffer_seconds = 45.0
+            st.session_state.max_gap_seconds = 10.0
+            st.rerun()
+    
+    return {
+        'buffer_seconds': buffer_seconds,
+        'max_gap_seconds': max_gap_seconds,
+        'use_segmentation': use_segmentation,
+        'show_details': show_segment_details
+    }
+
+def render_segmentation_preview(segments: List[Segment], max_preview: int = 3):
+    """
+    渲染分段预览
+    
+    Args:
+        segments: 分段结果列表
+        max_preview: 最大预览数量
+    """
+    if not segments:
+        return
+    
+    st.subheader("👁️ 分段预览")
+    
+    preview_segments = segments[:max_preview]
+    
+    for i, segment in enumerate(preview_segments, 1):
+        with st.container():
+            st.markdown(f"**分段 {i}** - {segment.time_range.start:.1f}s到{segment.time_range.end:.1f}s")
+            
+            # 显示关联知识点
+            if segment.knowledge_points:
+                kp_text = ", ".join([f"`{kp}`" for kp in segment.knowledge_points])
+                st.caption(f"关联知识点: {kp_text}")
+            
+            # 显示内容预览
+            if segment.text.strip():
+                preview_text = segment.text[:200] + "..." if len(segment.text) > 200 else segment.text
+                st.text(preview_text)
+            else:
+                st.caption("（空分段）")
+            
+            # 显示token信息
+            st.caption(f"Token数量: {segment.token_count} | 文本长度: {len(segment.text)}字符")
+            
+            st.divider()
+    
+    if len(segments) > max_preview:
+        st.info(f"仅显示前{max_preview}个分段，共有{len(segments)}个分段")
+
+def render_segmentation_status(processing_status: str, current_step: str = "", progress: float = 0.0):
+    """
+    渲染分段处理状态
+    
+    Args:
+        processing_status: 处理状态 (processing, success, error, warning)
+        current_step: 当前步骤描述
+        progress: 进度百分比 (0.0-1.0)
+    """
+    status_icons = {
+        'processing': '🔄',
+        'success': '✅',
+        'error': '❌',
+        'warning': '⚠️',
+        'info': 'ℹ️'
+    }
+    
+    status_colors = {
+        'processing': '#2383e2',
+        'success': '#00c851',
+        'error': '#ff4444',
+        'warning': '#ffbb33',
+        'info': '#33b5e5'
+    }
+    
+    icon = status_icons.get(processing_status, '🔄')
+    color = status_colors.get(processing_status, '#2383e2')
+    
+    # 状态显示
+    status_html = f"""
+    <div style="
+        background: {color}15;
+        border-left: 4px solid {color};
+        padding: 12px 16px;
+        border-radius: 0 6px 6px 0;
+        margin: 8px 0;
+    ">
+        <div style="color: {color}; font-weight: 500; margin-bottom: 4px;">
+            {icon} 智能分段处理状态
+        </div>
+        <div style="color: #37352f; font-size: 14px;">
+            {current_step}
+        </div>
+    </div>
+    """
+    
+    st.markdown(status_html, unsafe_allow_html=True)
+    
+    # 进度条
+    if processing_status == 'processing' and progress > 0:
+        st.progress(progress)
+
+def render_token_comparison_chart(original_tokens: int, segmented_tokens: int):
+    """
+    渲染Token使用对比图表
+    
+    Args:
+        original_tokens: 原始token数量
+        segmented_tokens: 分段后token数量
+    """
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+        
+        # 计算减少比例
+        reduction_ratio = (1 - segmented_tokens / original_tokens) * 100 if original_tokens > 0 else 0
+        
+        # 创建对比图
+        fig = go.Figure()
+        
+        # 添加柱状图
+        fig.add_trace(go.Bar(
+            name='原始Token',
+            x=['Token使用量'],
+            y=[original_tokens],
+            marker_color='#ff6b6b',
+            text=[f'{original_tokens:,}'],
+            textposition='auto',
+        ))
+        
+        fig.add_trace(go.Bar(
+            name='分段后Token',
+            x=['Token使用量'],
+            y=[segmented_tokens],
+            marker_color='#4ecdc4',
+            text=[f'{segmented_tokens:,}'],
+            textposition='auto',
+        ))
+        
+        # 更新布局
+        fig.update_layout(
+            title=f'Token使用量对比 - 减少{reduction_ratio:.1f}%',
+            yaxis_title='Token数量',
+            barmode='group',
+            height=400,
+            showlegend=True,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except ImportError:
+        # Fallback：使用简单的metrics显示
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "原始Token",
+                f"{original_tokens:,}",
+                help="原始字幕的token数量"
+            )
+        
+        with col2:
+            st.metric(
+                "分段后Token",
+                f"{segmented_tokens:,}",
+                delta=f"-{original_tokens - segmented_tokens:,}",
+                help="智能分段后的token数量"
+            )
+        
+        with col3:
+            reduction_ratio = (1 - segmented_tokens / original_tokens) * 100 if original_tokens > 0 else 0
+            st.metric(
+                "减少比例",
+                f"{reduction_ratio:.1f}%",
+                help="token减少的百分比"
+            )
+
+def render_segmentation_settings_panel():
+    """
+    渲染分段设置面板
+    
+    Returns:
+        配置设置字典
+    """
+    with st.sidebar:
+        st.markdown("### 🔧 智能分段设置")
+        
+        # 基础设置
+        st.markdown("#### 基础参数")
+        
+        buffer_seconds = st.number_input(
+            "缓冲区大小（秒）",
+            min_value=0.0,
+            max_value=120.0,
+            value=30.0,
+            step=5.0,
+            help="为时间段前后添加的缓冲时间"
+        )
+        
+        max_gap_seconds = st.number_input(
+            "合并间隔（秒）",
+            min_value=0.0,
+            max_value=60.0,
+            value=5.0,
+            step=1.0,
+            help="小于此值的时间段将自动合并"
+        )
+        
+        # 高级设置
+        st.markdown("#### 高级选项")
+        
+        enable_fallback = st.checkbox(
+            "启用Fallback机制",
+            value=True,
+            help="分段失败时自动使用完整内容"
+        )
+        
+        min_segment_duration = st.number_input(
+            "最小分段时长（秒）",
+            min_value=1.0,
+            max_value=60.0,
+            value=5.0,
+            step=1.0,
+            help="小于此时长的分段将被合并"
+        )
+        
+        # 显示选项
+        st.markdown("#### 显示选项")
+        
+        show_processing_details = st.checkbox(
+            "显示处理详情",
+            value=True,
+            help="显示分段处理的详细信息"
+        )
+        
+        show_token_chart = st.checkbox(
+            "显示Token对比图",
+            value=True,
+            help="显示token使用量的对比图表"
+        )
+        
+        max_preview_segments = st.number_input(
+            "预览分段数量",
+            min_value=1,
+            max_value=10,
+            value=3,
+            help="预览模式下显示的分段数量"
+        )
+        
+        return {
+            'buffer_seconds': buffer_seconds,
+            'max_gap_seconds': max_gap_seconds,
+            'enable_fallback': enable_fallback,
+            'min_segment_duration': min_segment_duration,
+            'show_processing_details': show_processing_details,
+            'show_token_chart': show_token_chart,
+            'max_preview_segments': max_preview_segments
+        }
+
+def render_time_range_visualization(segments: List[Segment], total_duration: float = None):
+    """
+    渲染时间范围可视化
+    
+    Args:
+        segments: 分段列表
+        total_duration: 总时长（秒）
+    """
+    if not segments:
+        return
+    
+    st.subheader("⏰ 时间范围分布")
+    
+    # 如果没有提供总时长，从分段中计算
+    if total_duration is None:
+        total_duration = max(seg.time_range.end for seg in segments)
+    
+    # 创建时间线可视化
+    timeline_data = []
+    colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffd93d', '#ff9ff3']
+    
+    for i, segment in enumerate(segments):
+        color = colors[i % len(colors)]
+        timeline_data.append({
+            'segment': f'分段{i+1}',
+            'start': segment.time_range.start,
+            'end': segment.time_range.end,
+            'duration': segment.time_range.duration,
+            'tokens': segment.token_count,
+            'knowledge_points': len(segment.knowledge_points),
+            'color': color
+        })
+    
+    # 使用HTML和CSS创建简单的时间线
+    timeline_html = """
+    <div style="margin: 20px 0;">
+        <div style="position: relative; height: 60px; background: #f7f6f3; border-radius: 6px; overflow: hidden;">
+    """
+    
+    for data in timeline_data:
+        left_percent = (data['start'] / total_duration) * 100
+        width_percent = (data['duration'] / total_duration) * 100
+        
+        timeline_html += f"""
+            <div style="
+                position: absolute;
+                left: {left_percent:.1f}%;
+                width: {width_percent:.1f}%;
+                height: 100%;
+                background: {data['color']};
+                border-radius: 3px;
+                margin: 5px 1px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-size: 12px;
+                font-weight: 500;
+                opacity: 0.8;
+            " title="{data['segment']}: {data['start']:.1f}s - {data['end']:.1f}s ({data['tokens']} tokens)">
+                {data['segment']}
+            </div>
+        """
+    
+    timeline_html += """
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: #787774;">
+            <span>0s</span>
+            <span>""" + f"{total_duration:.1f}s" + """</span>
+        </div>
+    </div>
+    """
+    
+    st.markdown(timeline_html, unsafe_allow_html=True)
+    
+    # 显示分段统计表格
+    if st.checkbox("显示详细统计表格", value=False):
+        import pandas as pd
+        
+        df_data = []
+        for i, data in enumerate(timeline_data, 1):
+            df_data.append({
+                '分段': f'分段{i}',
+                '开始时间': f"{data['start']:.1f}s",
+                '结束时间': f"{data['end']:.1f}s", 
+                '持续时间': f"{data['duration']:.1f}s",
+                'Token数量': data['tokens'],
+                '知识点数': data['knowledge_points']
+            })
+        
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True)
+
+def render_segmentation_debug_info(segments: List[Segment]):
+    """
+    渲染分段调试信息（开发调试用）
+    
+    Args:
+        segments: 分段列表
+    """
+    if not st.checkbox("🐛 显示调试信息", value=False):
+        return
+    
+    st.subheader("🔍 调试信息")
+    
+    for i, segment in enumerate(segments, 1):
+        with st.expander(f"调试 - 分段{i}"):
+            st.json({
+                'time_range': {
+                    'start': segment.time_range.start,
+                    'end': segment.time_range.end,
+                    'duration': segment.time_range.duration,
+                    'kp_ids': segment.time_range.kp_ids
+                },
+                'knowledge_points': segment.knowledge_points,
+                'token_count': segment.token_count,
+                'text_length': len(segment.text),
+                'buffer_info': segment.buffer_info,
+                'text_preview': segment.text[:100] + "..." if len(segment.text) > 100 else segment.text
+            })
+
+# 以下是集成函数，用于在app.py中调用
+
+def render_complete_segmentation_interface(segments: List[Segment], 
+                                         original_tokens: int,
+                                         show_controls: bool = True,
+                                         show_details: bool = True) -> Dict[str, Any]:
+    """
+    渲染完整的智能分段界面
+    
+    Args:
+        segments: 分段结果列表
+        original_tokens: 原始token数量
+        show_controls: 是否显示控制面板
+        show_details: 是否显示详细信息
+        
+    Returns:
+        用户交互结果
+    """
+    result = {'action': 'none'}
+    
+    if not segments:
+        st.warning("⚠️ 没有分段结果")
+        return result
+    
+    # 1. 显示摘要
+    render_segmentation_summary(segments, original_tokens)
+    
+    # 2. 显示Token对比图（如果可用）
+    if len(segments) > 0:
+        total_segmented_tokens = sum(seg.token_count for seg in segments)
+        
+        if st.checkbox("📊 显示Token对比图表", value=True):
+            render_token_comparison_chart(original_tokens, total_segmented_tokens)
+    
+    # 3. 显示时间范围可视化
+    if st.checkbox("⏰ 显示时间范围分布", value=True):
+        render_time_range_visualization(segments)
+    
+    # 4. 显示分段预览
+    if st.checkbox("👁️ 显示分段预览", value=True):
+        max_preview = st.slider("预览数量", 1, min(10, len(segments)), 3)
+        render_segmentation_preview(segments, max_preview)
+    
+    # 5. 显示详细信息
+    if show_details and st.checkbox("📊 显示详细分段信息", value=False):
+        show_content = st.checkbox("显示分段内容", value=False)
+        render_segment_details(segments, show_content)
+    
+    # 6. 调试信息
+    render_segmentation_debug_info(segments)
+    
+    # 7. 操作按钮
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("✅ 确认使用分段结果", type="primary", use_container_width=True):
+            result['action'] = 'confirm'
+    
+    with col2:
+        if st.button("🔄 重新分段", use_container_width=True):
+            result['action'] = 'retry'
+    
+    with col3:
+        if st.button("❌ 使用完整内容", use_container_width=True):
+            result['action'] = 'fallback'
+    
+    return result
 
 class UIConstants:
     """UI常量类"""

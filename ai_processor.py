@@ -1,4 +1,4 @@
-# ai_processor.py
+# ai_processor.py - 更新版本，集成智能分段功能
 import yaml
 import re
 import datetime
@@ -6,10 +6,15 @@ import json
 from openai import OpenAI
 from typing import List, Dict, Any, Optional
 
+# 导入智能分段相关模块
+from intelligent_segmenter import IntelligentSegmenter, Segment
+
 class AIProcessor:
     def __init__(self, api_key: str, base_url: str, model: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        # 初始化智能分段器
+        self.segmenter = IntelligentSegmenter()
     
     # 第一步：知识点分析与架构构建
     def extract_knowledge_points_step1(self, subtitle_content: str, metadata: Dict[str, str]) -> Dict:
@@ -34,9 +39,173 @@ class AIProcessor:
             print(f"❌ 第一步分析失败: {e}")
             return {}
 
-    # 第二步：详细笔记整理
-    def generate_notes_step2(self, analysis_result: Dict, subtitle_content: str, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-        """根据第一步结果生成最终笔记"""
+    # 第二步：详细笔记整理（集成智能分段）
+    def generate_notes_step2(self, analysis_result: Dict, subtitle_content: str, 
+                           metadata: Dict[str, str], use_segmentation: bool = True) -> List[Dict[str, Any]]:
+        """
+        根据第一步结果生成最终笔记（集成智能分段）
+        
+        Args:
+            analysis_result: 第一步分析结果
+            subtitle_content: 原始字幕内容
+            metadata: 元数据
+            use_segmentation: 是否使用智能分段（默认True）
+            
+        Returns:
+            生成的笔记列表
+        """
+        try:
+            # 如果启用智能分段
+            if use_segmentation:
+                print("🔧 启用智能分段处理...")
+                
+                # 检测字幕格式
+                file_format = self._detect_subtitle_format(subtitle_content)
+                
+                # 执行智能分段
+                segments = self.segmenter.segment_subtitle_content(
+                    subtitle_content, 
+                    analysis_result, 
+                    file_format
+                )
+                
+                # 获取分段摘要
+                summary = self.segmenter.get_segments_summary(segments)
+                print(f"📊 分段摘要: {summary['total_segments']}个分段, "
+                      f"Token减少{(1-summary['total_tokens']/self.segmenter._estimate_token_count(subtitle_content))*100:.1f}%")
+                
+                # 使用分段内容生成笔记
+                return self._generate_notes_from_segments(segments, analysis_result, metadata)
+            else:
+                print("📝 使用传统方式处理...")
+                # 传统方式：使用完整字幕内容
+                return self._generate_notes_traditional(analysis_result, subtitle_content, metadata)
+                
+        except Exception as e:
+            print(f"❌ 第二步笔记生成失败: {e}")
+            # Fallback到传统方式
+            return self._generate_notes_traditional(analysis_result, subtitle_content, metadata)
+    
+    def _detect_subtitle_format(self, content: str) -> str:
+        """
+        检测字幕文件格式
+        
+        Args:
+            content: 字幕内容
+            
+        Returns:
+            检测到的格式：'lrc', 'srt', 'txt'
+        """
+        if re.search(r'\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]', content):
+            return 'lrc'
+        elif re.search(r'\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}', content):
+            return 'srt'
+        else:
+            return 'txt'
+    
+    def _generate_notes_from_segments(self, segments: List[Segment], 
+                                    analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """
+        基于分段结果生成笔记
+        
+        Args:
+            segments: 智能分段结果
+            analysis_result: 第一步分析结果
+            metadata: 元数据
+            
+        Returns:
+            生成的笔记列表
+        """
+        all_notes = []
+        knowledge_points = analysis_result.get('knowledge_points', [])
+        
+        # 为每个分段构建对应的知识点组
+        for segment in segments:
+            if not segment.text.strip():  # 跳过空分段
+                continue
+                
+            # 找到与此分段相关的知识点
+            related_kps = []
+            for kp in knowledge_points:
+                if kp.get('id') in segment.knowledge_points:
+                    related_kps.append(kp)
+            
+            if not related_kps:  # 如果没有关联的知识点，跳过
+                continue
+            
+            # 构建分段处理的提示词
+            segment_prompt = self._build_segment_prompt(
+                segment, related_kps, analysis_result, metadata
+            )
+            
+            try:
+                # 调用AI处理分段
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": segment_prompt}],
+                    temperature=0,
+                )
+                
+                # 解析AI返回的笔记
+                segment_notes = self._parse_ai_response(response.choices[0].message.content)
+                if segment_notes:
+                    all_notes.extend(segment_notes)
+                    print(f"✅ 分段处理完成，生成 {len(segment_notes)} 个笔记")
+                
+            except Exception as e:
+                print(f"⚠️ 分段处理失败，跳过: {e}")
+                continue
+        
+        return all_notes
+    
+    def _build_segment_prompt(self, segment: Segment, related_kps: List[Dict], 
+                            analysis_result: Dict, metadata: Dict[str, str]) -> str:
+        """
+        构建分段处理的提示词
+        
+        Args:
+            segment: 分段对象
+            related_kps: 相关知识点列表
+            analysis_result: 完整分析结果
+            metadata: 元数据
+            
+        Returns:
+            构建好的提示词
+        """
+        # 提取课程概览和教学洞察
+        course_overview = analysis_result.get('course_overview', {})
+        teaching_insights = analysis_result.get('teaching_insights', {})
+        
+        # 构建知识点信息
+        kp_info = []
+        for kp in related_kps:
+            kp_summary = {
+                'id': kp.get('id', ''),
+                'concept_name': kp.get('concept_name', ''),
+                'concept_type': kp.get('concept_type', ''),
+                'importance_level': kp.get('importance_level', ''),
+                'time_range': kp.get('time_range', ''),
+                'core_definition': kp.get('core_definition', {}),
+                'detailed_content': kp.get('detailed_content', {}),
+                'exam_relevance': kp.get('exam_relevance', {}),
+                'relationships': kp.get('relationships', {})
+            }
+            kp_info.append(kp_summary)
+        
+        return self.SEGMENT_PROMPT_TEMPLATE.format(
+            segment_text=segment.text,
+            time_range=f"{segment.time_range.start:.1f}-{segment.time_range.end:.1f}s",
+            knowledge_points=json.dumps(kp_info, ensure_ascii=False, indent=2),
+            course_overview=json.dumps(course_overview, ensure_ascii=False),
+            teaching_insights=json.dumps(teaching_insights, ensure_ascii=False),
+            subject=metadata['subject'],
+            source=metadata['source'],
+            course_url=metadata.get('course_url', '')
+        )
+    
+    def _generate_notes_traditional(self, analysis_result: Dict, subtitle_content: str, 
+                                  metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """传统方式生成笔记（使用完整字幕内容）"""
         prompt = self.STEP2_PROMPT_TEMPLATE.format(
             analysis_result=json.dumps(analysis_result, ensure_ascii=False),
             subtitle_content=subtitle_content,
@@ -54,7 +223,7 @@ class AIProcessor:
             
             return self._parse_ai_response(response.choices[0].message.content)
         except Exception as e:
-            print(f"❌ 第二步笔记生成失败: {e}")
+            print(f"❌ 传统方式笔记生成失败: {e}")
             return []
 
     # 旧版兼容方法（单步处理）
@@ -65,6 +234,105 @@ class AIProcessor:
         if not analysis:
             return []
         return self.generate_notes_step2(analysis, subtitle_content, metadata)
+    
+    # 新增：分段处理的提示词模板
+    SEGMENT_PROMPT_TEMPLATE = """\
+你是专业的法考笔记整理专家。请根据第一步分析结果和对应的字幕片段，生成完整的Obsidian笔记。
+
+## 输入内容
+
+**字幕片段**（时间范围: {time_range}）：
+{segment_text}
+
+**相关知识点分析**：
+{knowledge_points}
+
+**课程概览**：
+{course_overview}
+
+**教学风格洞察**：
+{teaching_insights}
+
+**课程信息**：
+- 科目：{subject}
+- 来源：{source}
+- 课程链接：{course_url}
+
+## 处理要求
+
+**精确对应**：严格基于提供的知识点分析结果，为每个knowledge_point生成对应笔记
+
+**充分利用片段内容**：深度挖掘字幕片段中的信息，保留老师的原始表述和重要细节
+
+**时间戳处理**：使用time_range信息添加准确的时间戳标记，格式为[MM:SS.mm]
+
+**概念关联**：基于relationships信息建立准确的双链关系
+
+## 笔记生成规则
+
+**YAML元数据标准**：
+```yaml
+title: "【{subject}】{{concept_name}}"
+aliases: ["{{concept_name}}", "其他别名"]
+tags: ["{subject}", "根据concept_type确定", "根据importance_level确定"]
+source: "{source}"
+course_url: "{course_url}"
+time_range: "{{time_range}}"
+subject: "{subject}"
+exam_importance: "{{importance_level}}"
+concept_id: "{{id}}"
+created: "当前时间"
+```
+
+**章节结构智能设计**：根据concept_type智能选择章节结构
+- 定义性概念：核心定义 + 关键要素 + 典型案例
+- 构成要件：要件概述 + 要件详解 + 举证责任
+- 程序性知识：程序概述 + 操作步骤 + 注意事项
+- 判断标准：标准概述 + 判断要素 + 适用情形
+- 法条规定：条文内容 + 立法背景 + 适用情形
+- 实务经验：经验概述 + 操作要点 + 实用技巧
+
+**内容填充策略**：
+- 核心定义：优先使用teacher_original，补充context信息
+- 详细展开：基于detailed_content的main_explanation和examples
+- 记忆要点：结合memory_tips、key_keywords、common_mistakes
+- 相关概念：根据relationships建立双链
+
+**输出格式**：
+```
+=== NOTE_SEPARATOR ===
+YAML:
+---
+[YAML元数据]
+---
+CONTENT:
+# 【{subject}】{{concept_name}}
+
+## 核心定义
+
+⏰ [时间戳]
+[基于teacher_original和字幕片段的定义]
+
+[智能选择的其他章节]
+
+## 记忆要点
+
+🔮 [关键记忆点] — [简洁解释]
+📱 [应用场景] — [典型情况]  
+💡 [重要提醒] — [易错提示]
+
+## 相关概念
+
+[基于relationships的双链列表]
+
+---
+*视频时间段：{time_range}*
+
+=== NOTE_SEPARATOR ===
+```
+
+请严格按照上述要求，为提供的每个知识点生成对应的完整笔记。直接输出笔记内容，不需要额外说明。
+"""
     
     # 第一步提示词模板
     STEP1_PROMPT_TEMPLATE = """\
@@ -557,9 +825,9 @@ CONTENT:
 
 ## 相关概念
 
-- [[【{metadata['subject']}】相关概念1/别名1]]
-- [[【{metadata['subject']}】相关概念2/别名2]]
-- [[【{metadata['subject']}】相关概念3/别名3]]
+- [[【{metadata['subject']}】相关概念1|别名1]]
+- [[【{metadata['subject']}】相关概念2|别名2]]
+- [[【{metadata['subject']}】相关概念3|别名3]]
 
 ---
 *视频时间段：[开始时间]-[结束时间]*（如果有时间戳）
@@ -732,7 +1000,7 @@ MODIFIED: false
                     # 匹配开头：```后跟可选的语言名称
                     # 匹配结尾：```可能前后有空白
                     code_block_pattern = re.compile(
-                        r'^\s*```[a-zA-Z0-9_+-]*\s*\n?(.*?)\s*```\s*$', 
+                        r'^\s*```[a-zA-Z0-9_+-]*\s*\n?(.*?)\s*```\s*',
                         re.DOTALL
                     )
                     
@@ -748,7 +1016,7 @@ MODIFIED: false
                         
                         # 处理结尾标记
                         if enhanced_content.endswith('```'):
-                            enhanced_content = re.sub(r'\s*```\s*$', '', enhanced_content)
+                            enhanced_content = re.sub(r'\s*```\s*', '', enhanced_content)
                         
                         # 确保去除多余空白
                         enhanced_content = enhanced_content.strip()
