@@ -686,16 +686,25 @@ class StreamlitLawExamNoteProcessor:
                 )
                 
                 if enhancement_result and enhancement_result.get('modified', False):
-                    backup_path = note_info['file_path'] + '.backup'
-                    with open(backup_path, 'w', encoding='utf-8') as f:
-                        f.write(note_info['content'])
+                    # 内存备份原内容
+                    original_content = note_info['content']
+                    new_content = enhancement_result['enhanced_content']
                     
-                    with open(note_info['file_path'], 'w', encoding='utf-8') as f:
-                        f.write(enhancement_result['enhanced_content'])
-                    
-                    os.remove(backup_path)
-                    
-                    enhanced_count += 1
+                    try:
+                        # 直接写入新内容
+                        with open(note_info['file_path'], 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                        enhanced_count += 1
+                        
+                    except Exception as write_error:
+                        # 写入失败，立即恢复原内容
+                        try:
+                            with open(note_info['file_path'], 'w', encoding='utf-8') as f:
+                                f.write(original_content)
+                            st.error(f"⚠️ 写入失败已回滚: {write_error}")
+                        except Exception as rollback_error:
+                            st.error(f"❌ 回滚也失败: {rollback_error}")
+                        failed_count += 1
                 else:
                     pass
                     

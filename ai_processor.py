@@ -28,6 +28,54 @@ class AIProcessor:
         # 用于进度回调的属性
         self.progress_callback = None
     
+    def _separate_markdown_content(self, full_content: str) -> tuple:
+        """
+        分离markdown的YAML frontmatter和正文内容
+        
+        Returns:
+            tuple: (yaml_data: dict, content_only: str, has_yaml: bool)
+        """
+        
+        full_content = full_content.strip()
+        
+        # 检查是否有YAML frontmatter
+        if full_content.startswith('---'):
+            # 使用正则表达式匹配YAML frontmatter
+            yaml_match = re.match(r'^---\n(.*?)\n---\n?(.*)', full_content, re.DOTALL)
+            if yaml_match:
+                try:
+                    yaml_content = yaml_match.group(1)
+                    content_only = yaml_match.group(2).strip()
+                    yaml_data = yaml.safe_load(yaml_content)
+                    return yaml_data, content_only, True
+                except yaml.YAMLError as e:
+                    print(f"⚠️ YAML解析失败: {e}")
+                    return {}, full_content, False
+        
+        # 没有YAML frontmatter
+        return {}, full_content, False
+
+    def _combine_markdown_content(self, yaml_data: dict, content_only: str, has_yaml: bool) -> str:
+        """
+        重新组合YAML frontmatter和正文内容
+        
+        Args:
+            yaml_data: YAML数据字典
+            content_only: 纯正文内容
+            has_yaml: 原始文件是否有YAML
+        
+        Returns:
+            str: 完整的markdown内容
+        """
+        if not has_yaml or not yaml_data:
+            return content_only
+        
+        
+        # 生成YAML frontmatter
+        yaml_str = yaml.dump(yaml_data, allow_unicode=True, default_flow_style=False)
+        
+        return f"---\n{yaml_str}---\n\n{content_only}"
+
     # 第一步：知识点分析与架构构建
     def extract_knowledge_points_step1(self, subtitle_content: str, metadata: Dict[str, str]) -> Dict:
         """执行第一步分析，输出JSON结构"""
@@ -879,10 +927,16 @@ created: "{{当前时间}}"
             return all_notes
     
     def enhance_single_note_concepts(self, note_content: str, note_title: str, existing_concepts: Dict) -> Optional[Dict]:
-        """增强单个笔记的概念关系"""
-        prompt = self._build_single_note_enhancement_prompt(note_content, note_title, existing_concepts)
+        """增强单个笔记的概念关系 - 分离YAML处理版本"""
+        
+        # 1. 分离YAML和正文内容
+        yaml_data, content_only, has_yaml = self._separate_markdown_content(note_content)
+        
+        # 2. 构建提示词（只传入正文内容）
+        prompt = self._build_single_note_enhancement_prompt(content_only, note_title, existing_concepts)
         
         try:
+            # 3. 调用AI处理
             if self.model == "gemini-2.5-flash":
                 response = self.client.chat.completions.create(
                     reasoning_effort="medium",
@@ -894,14 +948,29 @@ created: "{{当前时间}}"
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                 )
-
-            return self._parse_single_note_enhancement_response(
-                response.choices[0].message.content, 
-                note_content
+            
+            # 4. 解析AI响应
+            enhancement_result = self._parse_single_note_enhancement_response(
+                response.choices[0].message.content, content_only
             )
+            
+            if not enhancement_result or not enhancement_result.get('modified', False):
+                return {'modified': False}
+            
+            # 5. 重新组合完整内容（YAML + 处理后的正文）
+            enhanced_content_only = enhancement_result['enhanced_content']
+            complete_enhanced_content = self._combine_markdown_content(
+                yaml_data, enhanced_content_only, has_yaml
+            )
+            
+            return {
+                'modified': True,
+                'enhanced_content': complete_enhanced_content
+            }
+            
         except Exception as e:
-            print(f"❌ AI增强单个笔记失败: {e}")
-            return None
+            print(f"⚠️ 概念关系增强失败: {e}")
+            return {'modified': False}
     
     def _build_extraction_prompt(self, subtitle_content: str, metadata: Dict[str, str]) -> str:
         """构建提取知识点的提示词"""

@@ -256,23 +256,94 @@ class SiliconFlowConceptEnhancer:
     
     def _build_concept_description(self, concept_name: str, concept_data: Dict) -> str:
         """构建概念的描述文本用于嵌入"""
-        parts = [concept_name]
         
-        # 添加别名
+        def remove_subject_prefix(text: str) -> str:
+            """去掉文本中的【科目】前缀"""
+            if not isinstance(text, str):
+                return ""
+            # 使用正则表达式去掉【xxx】前缀
+            cleaned = re.sub(r'^【[^】]+】', '', text.strip())
+            return cleaned.strip()
+        
+        parts = []
+        
+        # 添加概念名称
+        clean_concept_name = remove_subject_prefix(concept_name)
+        if clean_concept_name:
+            parts.append(clean_concept_name)
+        
+        # 添加别名 - 确保是字符串，去掉科目前缀
         if concept_data.get('aliases'):
-            parts.extend(concept_data['aliases'])
+            aliases = concept_data['aliases']
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        clean_alias = remove_subject_prefix(alias)
+                        if clean_alias:
+                            parts.append(clean_alias)
+                    elif isinstance(alias, list):
+                        for sub_alias in alias:
+                            if isinstance(sub_alias, str) and sub_alias.strip():
+                                clean_alias = remove_subject_prefix(sub_alias)
+                                if clean_alias:
+                                    parts.append(clean_alias)
+            elif isinstance(aliases, str) and aliases.strip():
+                clean_alias = remove_subject_prefix(aliases)
+                if clean_alias:
+                    parts.append(clean_alias)
         
-        # 添加科目信息
+        # 添加科目信息（保留"法考"前缀用于上下文）
         if concept_data.get('subject'):
-            parts.append(f"法考{concept_data['subject']}")
+            subject = concept_data['subject']
+            if isinstance(subject, str) and subject.strip():
+                parts.append(f"法考{subject.strip()}")
         
-        # 添加标签
+        # 添加标签 - 确保是字符串，去掉科目前缀
         if concept_data.get('tags'):
-            parts.extend([tag for tag in concept_data['tags'] if tag])
+            tags = concept_data['tags']
+            if isinstance(tags, list):
+                for tag in tags:
+                    if isinstance(tag, str) and tag.strip():
+                        clean_tag = remove_subject_prefix(tag)
+                        if clean_tag:
+                            parts.append(clean_tag)
+                    elif isinstance(tag, list):
+                        for sub_tag in tag:
+                            if isinstance(sub_tag, str) and sub_tag.strip():
+                                clean_tag = remove_subject_prefix(sub_tag)
+                                if clean_tag:
+                                    parts.append(clean_tag)
+            elif isinstance(tags, str) and tags.strip():
+                clean_tag = remove_subject_prefix(tags)
+                if clean_tag:
+                    parts.append(clean_tag)
         
-        # 添加相关概念（有限数量）
+        # 添加相关概念（有限数量）- 确保是字符串，去掉科目前缀
         if concept_data.get('related_concepts'):
-            parts.extend(concept_data['related_concepts'][:3])  # 只取前3个
+            related = concept_data['related_concepts']
+            if isinstance(related, list):
+                count = 0
+                for concept in related:
+                    if count >= 3:  # 只取前3个
+                        break
+                    if isinstance(concept, str) and concept.strip():
+                        clean_concept = remove_subject_prefix(concept)
+                        if clean_concept:
+                            parts.append(clean_concept)
+                            count += 1
+                    elif isinstance(concept, list):
+                        for sub_concept in concept:
+                            if count >= 3:
+                                break
+                            if isinstance(sub_concept, str) and sub_concept.strip():
+                                clean_concept = remove_subject_prefix(sub_concept)
+                                if clean_concept:
+                                    parts.append(clean_concept)
+                                    count += 1
+            elif isinstance(related, str) and related.strip():
+                clean_concept = remove_subject_prefix(related)
+                if clean_concept:
+                    parts.append(clean_concept)
         
         return ' '.join(parts)
     
