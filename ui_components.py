@@ -6,6 +6,7 @@ UI组件文件 - 包含可复用的UI组件函数
 import streamlit as st
 import json
 import yaml
+import math
 from typing import List, Dict, Any, Optional, Callable
 from intelligent_segmenter import Segment
 
@@ -1719,3 +1720,324 @@ class UIConstants:
         'card_padding': 20,
         'button_height': 32
     }
+
+def render_concurrent_processing_status(stats: dict = None, current_batch: int = 1, total_batches: int = 1):
+    """
+    渲染并发处理状态显示
+    
+    Args:
+        stats: 处理统计信息字典
+        current_batch: 当前批次
+        total_batches: 总批次数
+    """
+    with st.expander("📊 并发处理状态", expanded=True):
+        if stats is None:
+            stats = {
+                'total_tasks': 0,
+                'completed_tasks': 0,
+                'failed_tasks': 0,
+                'total_retries': 0,
+                'current_concurrent': 0,
+                'max_concurrent': 20
+            }
+        
+        # 第一行：主要指标
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "总任务数", 
+                stats.get('total_tasks', 0),
+                help="需要处理的知识点总数"
+            )
+        
+        with col2:
+            completed = stats.get('completed_tasks', 0)
+            total = stats.get('total_tasks', 1)
+            completion_rate = (completed / total * 100) if total > 0 else 0
+            st.metric(
+                "已完成", 
+                f"{completed}/{total}",
+                delta=f"{completion_rate:.1f}%",
+                help="已完成的任务数和完成率"
+            )
+        
+        with col3:
+            current_concurrent = stats.get('current_concurrent', 0)
+            max_concurrent = stats.get('max_concurrent', 20)
+            st.metric(
+                "当前并发数", 
+                f"{current_concurrent}/{max_concurrent}",
+                help="当前活跃的API调用数"
+            )
+        
+        with col4:
+            failed = stats.get('failed_tasks', 0)
+            retries = stats.get('total_retries', 0)
+            st.metric(
+                "失败/重试", 
+                f"{failed}/{retries}",
+                help="失败任务数和总重试次数"
+            )
+        
+        # 第二行：进度条和批次信息
+        if total_batches > 1:
+            st.write("**批次处理进度:**")
+            batch_progress = (current_batch - 1) / total_batches if total_batches > 0 else 0
+            st.progress(batch_progress)
+            st.caption(f"当前批次: {current_batch}/{total_batches}")
+        
+        # 第三行：处理时间统计
+        if 'total_processing_time' in stats and stats['total_processing_time'] > 0:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    "已用时间", 
+                    f"{stats['total_processing_time']:.1f}s",
+                    help="已消耗的处理时间"
+                )
+            with col2:
+                # 估算剩余时间
+                if completed > 0:
+                    avg_time_per_task = stats['total_processing_time'] / completed
+                    remaining_tasks = total - completed
+                    estimated_remaining = avg_time_per_task * remaining_tasks
+                    st.metric(
+                        "预计剩余", 
+                        f"{estimated_remaining:.1f}s",
+                        help="根据当前速度估算的剩余时间"
+                    )
+
+def render_concurrent_settings():
+    """
+    渲染并发处理设置界面
+    """
+    with st.expander("🚀 并发处理设置", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            enable_concurrent = st.checkbox(
+                "启用并发处理", 
+                value=True, 
+                help="对于多个知识点，使用并发方式可显著提高处理速度",
+                key="enable_concurrent_processing"
+            )
+            
+            if enable_concurrent:
+                max_concurrent = st.slider(
+                    "最大并发数",
+                    min_value=1,
+                    max_value=20,
+                    value=20,
+                    help="同时进行的API调用数量，不建议超过API限制",
+                    key="max_concurrent_limit"
+                )
+        
+        with col2:
+            if enable_concurrent:
+                max_retries = st.slider(
+                    "最大重试次数",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    help="单个任务失败后的最大重试次数",
+                    key="max_retries_setting"
+                )
+                
+                timeout_seconds = st.slider(
+                    "单个任务超时(秒)",
+                    min_value=30,
+                    max_value=180,
+                    value=60,
+                    help="单个知识点处理的超时时间",
+                    key="task_timeout_setting"
+                )
+        
+        if enable_concurrent:
+            st.info("💡 **并发处理优势:**")
+            advantages = [
+                "🚀 显著提高处理速度（通常快50-70%）",
+                "🔄 智能重试机制，提高成功率", 
+                "📊 实时进度显示，处理状态清晰",
+                "⚡ 自动批次优化，避免API限制",
+                "🛡️ 失败任务自动降级到传统方式"
+            ]
+            
+            for advantage in advantages:
+                st.write(f"- {advantage}")
+        else:
+            st.warning("⚠️ 禁用并发处理将使用传统的逐个处理方式，速度较慢但更稳定。")
+        
+        return {
+            'enable_concurrent': enable_concurrent,
+            'max_concurrent': max_concurrent if enable_concurrent else 1,
+            'max_retries': max_retries if enable_concurrent else 2,
+            'timeout': timeout_seconds if enable_concurrent else 60
+        }
+
+def render_concurrent_strategy_info(num_knowledge_points: int):
+    """
+    显示针对当前知识点数量的并发策略信息
+    
+    Args:
+        num_knowledge_points: 知识点数量
+    """
+    st.subheader("🎯 并发处理策略")
+    
+    # 根据知识点数量显示不同的策略信息
+    if num_knowledge_points <= 2:
+        st.info("📝 **策略**: 知识点较少，将使用传统逐个处理方式")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("处理方式", "逐个处理")
+        with col2:
+            st.metric("预计时间", "正常")
+    
+    elif num_knowledge_points <= 10:
+        recommended_concurrent = min(10, num_knowledge_points)
+        st.info(f"⚡ **策略**: 使用适中并发处理 (并发数: {recommended_concurrent})")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("并发数", recommended_concurrent)
+        with col2:
+            st.metric("预计批次", "1")
+        with col3:
+            st.metric("预计提速", "50-60%")
+    
+    else:
+        batches = math.ceil(num_knowledge_points / 20)
+        st.success(f"🚀 **策略**: 使用最大并发处理 (分{batches}个批次)")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("并发数", "20")
+        with col2:
+            st.metric("批次数", batches)
+        with col3:
+            st.metric("预计提速", "60-70%")
+        with col4:
+            st.metric("批次间隔", "~60s")
+        
+        if batches > 2:
+            st.info("💡 **优化提示**: 系统将智能分配批次，第一批处理完成后会调整后续批次的并发数")
+
+def render_processing_progress_live(progress_container=None):
+    """
+    渲染实时处理进度显示
+    
+    Args:
+        progress_container: Streamlit容器对象，如果为None则创建新容器
+    """
+    if progress_container is None:
+        progress_container = st.container()
+    
+    with progress_container:
+        # 进度条占位符
+        if 'progress_bar' not in st.session_state:
+            st.session_state.progress_bar = st.progress(0)
+        
+        # 进度文本占位符
+        if 'progress_text' not in st.session_state:
+            st.session_state.progress_text = st.text("准备开始处理...")
+        
+        # 统计信息占位符
+        if 'stats_container' not in st.session_state:
+            st.session_state.stats_container = st.empty()
+    
+    return {
+        'progress_bar': st.session_state.progress_bar,
+        'progress_text': st.session_state.progress_text,
+        'stats_container': st.session_state.stats_container
+    }
+
+def update_processing_progress(current: int, total: int, status: str = ""):
+    """
+    更新处理进度显示
+    
+    Args:
+        current: 当前完成数量
+        total: 总数量  
+        status: 状态信息
+    """
+    if 'progress_bar' in st.session_state:
+        progress = current / total if total > 0 else 0
+        st.session_state.progress_bar.progress(progress)
+    
+    if 'progress_text' in st.session_state:
+        progress_percent = (current / total * 100) if total > 0 else 0
+        text = f"处理进度: {current}/{total} ({progress_percent:.1f}%)"
+        if status:
+            text += f" - {status}"
+        st.session_state.progress_text.text(text)
+
+def render_concurrent_results_summary(results_data: dict):
+    """
+    渲染并发处理结果摘要
+    
+    Args:
+        results_data: 处理结果数据字典
+    """
+    st.subheader("📊 处理结果摘要")
+    
+    # 基本统计
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "总知识点", 
+            results_data.get('total_knowledge_points', 0),
+            help="需要处理的知识点总数"
+        )
+    
+    with col2:
+        success_count = results_data.get('successful_notes', 0)
+        total_count = results_data.get('total_knowledge_points', 1)
+        success_rate = (success_count / total_count * 100) if total_count > 0 else 0
+        st.metric(
+            "成功生成", 
+            success_count,
+            delta=f"{success_rate:.1f}%",
+            help="成功生成笔记的数量和成功率"
+        )
+    
+    with col3:
+        processing_time = results_data.get('total_processing_time', 0)
+        st.metric(
+            "总用时", 
+            f"{processing_time:.1f}s",
+            help="总的处理时间"
+        )
+    
+    with col4:
+        if results_data.get('used_concurrent', False):
+            time_saved = results_data.get('estimated_time_saved', 0)
+            st.metric(
+                "节省时间", 
+                f"{time_saved:.1f}s",
+                delta=f"-{time_saved/processing_time*100:.1f}%" if processing_time > 0 else "0%",
+                help="相比传统方式节省的时间"
+            )
+        else:
+            st.metric("处理方式", "传统", help="使用了传统的逐个处理方式")
+    
+    # 详细统计
+    if results_data.get('concurrent_stats'):
+        with st.expander("📈 详细统计信息", expanded=False):
+            stats = results_data['concurrent_stats']
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**API调用统计:**")
+                st.write(f"- 总重试次数: {stats.get('total_retries', 0)}")
+                st.write(f"- 失败任务数: {stats.get('failed_tasks', 0)}")
+                st.write(f"- 处理批次数: {stats.get('batches_processed', 0)}")
+            
+            with col2:
+                st.write("**时间分析:**")
+                avg_time = stats.get('total_processing_time', 0) / max(stats.get('completed_tasks', 1), 1)
+                st.write(f"- 平均每个知识点: {avg_time:.2f}s")
+                st.write(f"- 最大并发数: {stats.get('max_concurrent', 0)}")
+                
+                if stats.get('batches_processed', 0) > 1:
+                    st.write(f"- 批次间平均间隔: ~60s")

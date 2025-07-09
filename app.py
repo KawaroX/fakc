@@ -23,6 +23,10 @@ from typing import Dict, List, Optional, Union, Any
 import streamlit as st
 import yaml
 
+import threading
+import math
+from concurrent_processor import ConcurrentConfig
+
 # 确保项目根目录在sys.path中，以便导入其他模块
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
@@ -39,7 +43,10 @@ from ui_components import (
     render_model_selector, render_step1_result_viewer, render_step1_result_editor,
     render_two_step_progress, render_segmentation_summary, render_segment_details,
     render_segmentation_controls, render_segmentation_preview, render_segmentation_status,
-    render_token_comparison_chart, render_complete_segmentation_interface
+    render_token_comparison_chart, render_complete_segmentation_interface, 
+    render_concurrent_processing_status, render_concurrent_settings, 
+    render_concurrent_strategy_info, render_processing_progress_live,
+    update_processing_progress, render_concurrent_results_summary
 )
 from app_constants import AppConstants, UIConfig, ModelConfig
 
@@ -109,6 +116,26 @@ class StreamlitLawExamNoteProcessor:
             self.segmenter = IntelligentSegmenter()
         else:
             self.segmenter = None
+
+        self.processing_progress = {
+            'current': 0,
+            'total': 0,
+            'current_task': '',
+            'is_processing': False
+        }
+
+        self.concurrent_stats = {
+        'total_tasks': 0,
+        'completed_tasks': 0,
+        'failed_tasks': 0,
+        'total_retries': 0,
+        'current_concurrent': 0,
+        'max_concurrent': 20,
+        'total_processing_time': 0.0,
+        'batches_processed': 0,
+        'used_concurrent': False,
+        'estimated_time_saved': 0.0
+    }
 
     def create_ai_processor_from_config(self, config: dict) -> AIProcessor:
         """
@@ -213,100 +240,100 @@ class StreamlitLawExamNoteProcessor:
             st.error(f"❌ 处理过程中出错: {e}")
             return {'status': 'error', 'message': str(e), 'step': 1}
 
-    def process_step2_generation(
-        self,
-        analysis_result: dict,
-        subtitle_content: str,
-        metadata: dict,
-        step2_config: dict,
-        segmentation_settings: dict = None  # 新增分段设置参数
-    ) -> List[str]:
-        """
-        执行第二步：根据分析结果生成笔记（集成智能分段）
+    # def process_step2_generation(
+    #     self,
+    #     analysis_result: dict,
+    #     subtitle_content: str,
+    #     metadata: dict,
+    #     step2_config: dict,
+    #     segmentation_settings: dict = None  # 新增分段设置参数
+    # ) -> List[str]:
+    #     """
+    #     执行第二步：根据分析结果生成笔记（集成智能分段）
         
-        Args:
-            analysis_result: 第一步分析结果
-            subtitle_content: 原始字幕内容
-            metadata: 元数据
-            step2_config: 第二步AI配置
-            segmentation_settings: 智能分段设置
+    #     Args:
+    #         analysis_result: 第一步分析结果
+    #         subtitle_content: 原始字幕内容
+    #         metadata: 元数据
+    #         step2_config: 第二步AI配置
+    #         segmentation_settings: 智能分段设置
             
-        Returns:
-            生成的笔记文件路径列表
-        """
-        try:
-            # 1. 创建第二步AI处理器
-            st.info("📝 开始第二步：详细笔记整理与生成...")
-            step2_processor = self.create_ai_processor_from_config(step2_config)
+    #     Returns:
+    #         生成的笔记文件路径列表
+    #     """
+    #     try:
+    #         # 1. 创建第二步AI处理器
+    #         st.info("📝 开始第二步：详细笔记整理与生成...")
+    #         step2_processor = self.create_ai_processor_from_config(step2_config)
             
-            # 2. 配置智能分段器（如果启用且可用）
-            use_segmentation = (
-                SEGMENTATION_AVAILABLE and 
-                segmentation_settings and 
-                segmentation_settings.get('use_segmentation', True)
-            )
+    #         # 2. 配置智能分段器（如果启用且可用）
+    #         use_segmentation = (
+    #             SEGMENTATION_AVAILABLE and 
+    #             segmentation_settings and 
+    #             segmentation_settings.get('use_segmentation', True)
+    #         )
             
-            if use_segmentation:
-                st.info("🔧 启用智能分段处理...")
+    #         if use_segmentation:
+    #             st.info("🔧 启用智能分段处理...")
                 
-                # 配置分段器参数
-                buffer_seconds = segmentation_settings.get('buffer_seconds', 30.0)
-                max_gap_seconds = segmentation_settings.get('max_gap_seconds', 5.0)
+    #             # 配置分段器参数
+    #             buffer_seconds = segmentation_settings.get('buffer_seconds', 30.0)
+    #             max_gap_seconds = segmentation_settings.get('max_gap_seconds', 5.0)
                 
-                # 创建分段器
-                segmenter = IntelligentSegmenter(
-                    buffer_seconds=buffer_seconds,
-                    max_gap_seconds=max_gap_seconds
-                )
+    #             # 创建分段器
+    #             segmenter = IntelligentSegmenter(
+    #                 buffer_seconds=buffer_seconds,
+    #                 max_gap_seconds=max_gap_seconds
+    #             )
                 
-                # 执行智能分段
-                try:
-                    file_format = step2_processor._detect_subtitle_format(subtitle_content)
-                    segments = self.segmenter.segment_by_knowledge_points(
-                        subtitle_content, 
-                        analysis_result, 
-                        file_format
-                    )
+    #             # 执行智能分段
+    #             try:
+    #                 file_format = step2_processor._detect_subtitle_format(subtitle_content)
+    #                 segments = self.segmenter.segment_by_knowledge_points(
+    #                     subtitle_content, 
+    #                     analysis_result, 
+    #                     file_format
+    #                 )
                     
-                    # 显示分段结果
-                    if segments:
-                        original_tokens = segmenter._estimate_token_count(subtitle_content)
+    #                 # 显示分段结果
+    #                 if segments:
+    #                     original_tokens = segmenter._estimate_token_count(subtitle_content)
                         
-                        st.success("✅ 智能分段完成！")
+    #                     st.success("✅ 智能分段完成！")
                         
-                        # 显示分段摘要
-                        render_segmentation_summary(segments, original_tokens)
+    #                     # 显示分段摘要
+    #                     render_segmentation_summary(segments, original_tokens)
                         
-                        # 可选：显示详细信息
-                        if segmentation_settings.get('show_details', False):
-                            with st.expander("📊 查看分段详情", expanded=False):
-                                render_segment_details(segments, show_content=False)
-                                render_segmentation_preview(segments, max_preview=3)
+    #                     # 可选：显示详细信息
+    #                     if segmentation_settings.get('show_details', False):
+    #                         with st.expander("📊 查看分段详情", expanded=False):
+    #                             render_segment_details(segments, show_content=False)
+    #                             render_segmentation_preview(segments, max_preview=3)
                         
-                        # 自动继续使用分段结果生成笔记
-                        st.info("✅ 确认分段结果，使用智能分段继续生成笔记...")
-                        return self._generate_notes_with_segments(
-                            step2_processor, segments, analysis_result, metadata
-                        )
-                    else:
-                        st.warning("⚠️ 智能分段失败，将使用完整内容")
-                        use_segmentation = False
+    #                     # 自动继续使用分段结果生成笔记
+    #                     st.info("✅ 确认分段结果，使用智能分段继续生成笔记...")
+    #                     return self._generate_notes_with_segments(
+    #                         step2_processor, segments, analysis_result, metadata
+    #                     )
+    #                 else:
+    #                     st.warning("⚠️ 智能分段失败，将使用完整内容")
+    #                     use_segmentation = False
                         
-                except Exception as e:
-                    st.warning(f"⚠️ 智能分段处理出错: {e}，将使用完整内容")
-                    use_segmentation = False
+    #             except Exception as e:
+    #                 st.warning(f"⚠️ 智能分段处理出错: {e}，将使用完整内容")
+    #                 use_segmentation = False
             
-            # 3. 使用传统方式处理（如果分段失败或用户选择）
-            if not use_segmentation:
-                st.info("📝 使用传统方式处理...")
-                return self._generate_notes_traditional_method(
-                    step2_processor, analysis_result, subtitle_content, metadata
-                )
+    #         # 3. 使用传统方式处理（如果分段失败或用户选择）
+    #         if not use_segmentation:
+    #             st.info("📝 使用传统方式处理...")
+    #             return self._generate_notes_traditional_method(
+    #                 step2_processor, analysis_result, subtitle_content, metadata
+    #             )
                 
-        except Exception as e:
-            st.error(f"❌ 第二步处理失败: {e}")
-            st.exception(e)
-            return []
+    #     except Exception as e:
+    #         st.error(f"❌ 第二步处理失败: {e}")
+    #         st.exception(e)
+    #         return []
 
     def _generate_notes_with_segments(
         self,
@@ -407,48 +434,48 @@ class StreamlitLawExamNoteProcessor:
         # 4. 生成笔记文件
         return self._save_notes_to_files(enhanced_notes, metadata)
 
-    def _save_notes_to_files(self, enhanced_notes: List[dict], metadata: dict) -> List[str]:
-        """
-        保存笔记到文件
+    # def _save_notes_to_files(self, enhanced_notes: List[dict], metadata: dict) -> List[str]:
+    #     """
+    #     保存笔记到文件
         
-        Args:
-            enhanced_notes: 增强后的笔记列表
-            metadata: 元数据
+    #     Args:
+    #         enhanced_notes: 增强后的笔记列表
+    #         metadata: 元数据
             
-        Returns:
-            生成的文件路径列表
-        """
-        # 1. 确定输出路径并生成文件
-        output_path = Config.get_output_path(metadata['subject'])
-        os.makedirs(output_path, exist_ok=True)
+    #     Returns:
+    #         生成的文件路径列表
+    #     """
+    #     # 1. 确定输出路径并生成文件
+    #     output_path = Config.get_output_path(metadata['subject'])
+    #     os.makedirs(output_path, exist_ok=True)
         
-        st.write(f"📝 生成笔记文件到: {output_path}")
-        created_files = []
-        for note_data in enhanced_notes:
-            file_path = self.note_generator.create_note_file(
-                note_data, 
-                output_path
-            )
-            created_files.append(file_path)
+    #     st.write(f"📝 生成笔记文件到: {output_path}")
+    #     created_files = []
+    #     for note_data in enhanced_notes:
+    #         file_path = self.note_generator.create_note_file(
+    #             note_data, 
+    #             output_path
+    #         )
+    #         created_files.append(file_path)
         
-        # 2. 更新概念数据库
-        self.concept_manager.update_database(enhanced_notes)
+    #     # 2. 更新概念数据库
+    #     self.concept_manager.update_database(enhanced_notes)
         
-        # 3. 自动进行时间戳链接化处理
-        if metadata.get('course_url'):
-            st.info("🔗 自动进行时间戳链接化处理...")
-            self.timestamp_linker.process_subject_notes(metadata['subject'])
-            st.success("✅ 时间戳链接化处理完成")
+    #     # 3. 自动进行时间戳链接化处理
+    #     if metadata.get('course_url'):
+    #         st.info("🔗 自动进行时间戳链接化处理...")
+    #         self.timestamp_linker.process_subject_notes(metadata['subject'])
+    #         st.success("✅ 时间戳链接化处理完成")
         
-        render_success_box(f"成功生成 {len(created_files)} 个笔记文件")
-        st.write(f"📁 保存位置: {output_path}")
+    #     render_success_box(f"成功生成 {len(created_files)} 个笔记文件")
+    #     st.write(f"📁 保存位置: {output_path}")
         
-        st.subheader("📋 生成的笔记:")
-        for file_path in created_files:
-            filename = os.path.basename(file_path)
-            st.markdown(f"  - `{filename}`")
+    #     st.subheader("📋 生成的笔记:")
+    #     for file_path in created_files:
+    #         filename = os.path.basename(file_path)
+    #         st.markdown(f"  - `{filename}`")
         
-        return created_files
+    #     return created_files
 
     def _segments_to_content(self, segments: List[Segment]) -> str:
         """
@@ -859,6 +886,296 @@ class StreamlitLawExamNoteProcessor:
         - **合并间隔**：小于此时间的相邻片段将自动合并，减少重复处理
         """)
 
+    def _create_progress_callback(self):
+        """创建进度回调函数"""
+        def update_progress(current, total):
+            self.processing_progress['current'] = current
+            self.processing_progress['total'] = total
+            
+            # 在Streamlit中更新进度
+            if 'progress_bar' in st.session_state:
+                progress = current / total if total > 0 else 0
+                st.session_state.progress_bar.progress(progress)
+            
+            if 'progress_text' in st.session_state:
+                st.session_state.progress_text.text(f"处理进度: {current}/{total} ({progress*100:.1f}%)")
+        
+        return update_progress
+    
+    def _configure_concurrent_processing(self, step2_processor, num_knowledge_points: int):
+        """配置并发处理参数"""
+        # 根据知识点数量智能调整并发配置
+        if num_knowledge_points <= 2:
+            # 知识点很少，不需要并发
+            max_concurrent = 1
+        elif num_knowledge_points <= 10:
+            # 中等数量，适中并发
+            max_concurrent = min(10, num_knowledge_points)
+        else:
+            # 大量知识点，最大并发
+            max_concurrent = 20
+        
+        # 根据知识点数量调整重试策略
+        max_retries = 3 if num_knowledge_points > 5 else 2
+        
+        # 创建并发配置
+        concurrent_config = ConcurrentConfig(
+            max_concurrent=max_concurrent,
+            max_retries=max_retries,
+            retry_delay=1.0,
+            timeout=60,
+            rate_limit_delay=60.0
+        )
+        
+        # 设置配置和回调
+        step2_processor.set_concurrent_config(concurrent_config)
+        step2_processor.set_progress_callback(self._create_progress_callback())
+        
+        return concurrent_config
+
+    def process_step2_generation(
+        self,
+        analysis_result: dict,
+        subtitle_content: str,
+        metadata: dict,
+        step2_config: dict,
+        segmentation_settings: dict = None,
+        concurrent_settings: dict = None  # 新增参数
+    ) -> List[str]:
+        """
+        执行第二步：根据分析结果生成笔记（集成智能分段和并发处理）
+        """
+        try:
+            # 1. 创建第二步AI处理器
+            st.info("📝 开始第二步：详细笔记整理与生成...")
+            step2_processor = self.create_ai_processor_from_config(step2_config)
+            
+            # 2. 分析知识点数量并配置并发处理
+            knowledge_points = analysis_result.get('knowledge_points', [])
+            num_knowledge_points = len(knowledge_points)
+            
+            st.info(f"📊 检测到 {num_knowledge_points} 个知识点")
+            
+            # ====== 配置并发处理（使用传入的设置） ======
+            if concurrent_settings and concurrent_settings.get('enable_concurrent', False):
+                self.concurrent_stats['used_concurrent'] = True
+                concurrent_config = self._configure_concurrent_processing_from_settings(
+                    step2_processor, num_knowledge_points, concurrent_settings
+                )
+                
+                # 显示并发策略信息
+                st.info(f"🚀 启用并发处理: 最大并发数 {concurrent_config.max_concurrent}, "
+                    f"预计分 {math.ceil(num_knowledge_points / concurrent_config.max_concurrent)} 个批次处理")
+                
+                # 实时更新并发处理状态
+                def status_update_callback(current, total):
+                    self.concurrent_stats['completed_tasks'] = current
+                    self.concurrent_stats['total_tasks'] = total
+                    
+                    # 更新进度显示
+                    update_processing_progress(current, total, "正在并发处理...")
+                    
+                    # 更新统计信息显示
+                    if 'stats_container' in st.session_state:
+                        with st.session_state.stats_container:
+                            render_concurrent_processing_status(
+                                self.concurrent_stats,
+                                current_batch=1,  # 可以根据实际情况调整
+                                total_batches=math.ceil(total / concurrent_config.max_concurrent)
+                            )
+                
+                step2_processor.set_progress_callback(status_update_callback)
+            else:
+                self.concurrent_stats['used_concurrent'] = False
+                st.info("🔄 使用传统逐个处理方式")
+            
+            # 3. 确定是否使用智能分段
+            use_segmentation = True
+            if segmentation_settings:
+                use_segmentation = segmentation_settings.get('use_segmentation', True)
+            
+            # 4. 创建进度显示组件
+            self.processing_progress['is_processing'] = True
+            self.processing_progress['total'] = num_knowledge_points
+            self.processing_progress['current'] = 0
+            
+            # 在Streamlit中创建进度条
+            progress_container = st.container()
+            with progress_container:
+                st.session_state.progress_bar = st.progress(0)
+                st.session_state.progress_text = st.text("准备开始处理...")
+            
+            # 5. 执行智能分段（如果启用）
+            if use_segmentation and SEGMENTATION_AVAILABLE:
+                st.write("🔧 执行智能分段...")
+                
+                # 检测字幕格式
+                file_format = step2_processor._detect_subtitle_format(subtitle_content)
+                st.write(f"📋 检测到字幕格式: {file_format.upper()}")
+                
+                # 执行智能分段
+                segments = step2_processor.segmenter.segment_by_knowledge_points(
+                    subtitle_content, analysis_result, file_format
+                )
+                
+                if segments:
+                    # 获取分段摘要
+                    summary = step2_processor.segmenter.get_segments_summary(segments)
+                    original_tokens = step2_processor.segmenter._estimate_token_count(subtitle_content)
+                    token_reduction = (1 - summary['total_tokens'] / original_tokens) * 100
+                    
+                    st.success(f"✅ 智能分段完成: {summary['total_segments']}个分段, "
+                             f"Token减少{token_reduction:.1f}%")
+                    
+                    # 显示分段统计
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("分段数量", summary['total_segments'])
+                    with col2:
+                        st.metric("Token减少", f"{token_reduction:.1f}%")
+                    with col3:
+                        st.metric("预计时间节省", "~30%", help="基于Token减少的估算")
+                    
+                    # 更新进度显示
+                    st.session_state.progress_text.text("🤖 开始并发生成笔记...")
+                    
+                    # 6. 使用分段结果生成笔记（支持并发）
+                    all_notes = step2_processor._generate_notes_from_individual_segments(
+                        segments, analysis_result, metadata
+                    )
+                else:
+                    st.warning("⚠️ 智能分段失败，使用传统方式处理")
+                    use_segmentation = False
+            
+            # 使用传统方式处理（如果分段失败或用户选择）
+            if not use_segmentation:
+                st.session_state.progress_text.text("🤖 使用传统方式生成笔记...")
+                all_notes = step2_processor._generate_notes_traditional(
+                    analysis_result, subtitle_content, metadata
+                )
+            
+            # 7. 检查生成结果
+            if not all_notes:
+                st.error("❌ 第二步笔记生成失败")
+                return []
+            
+            # 更新进度为完成状态
+            st.session_state.progress_bar.progress(1.0)
+            st.session_state.progress_text.text(f"✅ 笔记生成完成! 共生成 {len(all_notes)} 个笔记")
+            
+            st.success(f"✅ 生成了 {len(all_notes)} 个笔记")
+            
+            # 8. 扫描现有概念库
+            st.write("🔍 扫描现有概念库...")
+            self.concept_manager.scan_existing_notes()
+            existing_concepts = self.concept_manager.get_all_concepts_for_ai()
+            
+            # 9. AI增强：优化概念关系
+            st.write("🔗 AI正在优化概念关系...")
+            enhanced_notes = step2_processor.enhance_concept_relationships(
+                all_notes, existing_concepts
+            )
+            
+            # 10. 生成笔记文件
+            st.write("💾 保存笔记文件...")
+            created_files = self._save_notes_to_files(enhanced_notes, metadata)
+            
+            # 重置进度状态
+            self.processing_progress['is_processing'] = False
+            
+            return created_files
+            
+        except Exception as e:
+            # 重置进度状态
+            self.processing_progress['is_processing'] = False
+            
+            st.error(f"❌ 第二步处理失败: {e}")
+            st.exception(e)
+            return []
+
+    def _save_notes_to_files(self, enhanced_notes: List[Dict], metadata: dict) -> List[str]:
+        """
+        保存笔记到文件
+        
+        Args:
+            enhanced_notes: 增强后的笔记列表
+            metadata: 元数据
+            
+        Returns:
+            创建的文件路径列表
+        """
+        try:
+            # 确定输出路径
+            subject_folder = Config.SUBJECT_MAPPING.get(metadata['subject'], metadata['subject'])
+            output_path = os.path.join(Config.OBSIDIAN_VAULT_PATH, subject_folder)
+            
+            # 更新笔记生成器的输出路径
+            self.note_generator.output_path = output_path
+            
+            # 生成笔记文件
+            created_files = []
+            total_notes = len(enhanced_notes)
+            
+            for i, note in enumerate(enhanced_notes, 1):
+                try:
+                    # 生成单个笔记文件
+                    file_path = self.note_generator.create_note_file(note, output_path)
+                    if file_path:
+                        created_files.append(file_path)
+                    
+                    # 显示保存进度
+                    if i % 5 == 0 or i == total_notes:  # 每5个或最后一个显示进度
+                        st.write(f"💾 已保存 {i}/{total_notes} 个笔记文件")
+                        
+                except Exception as e:
+                    st.warning(f"⚠️ 保存笔记失败: {e}")
+                    continue
+            
+            st.success(f"✅ 成功保存 {len(created_files)} 个笔记文件")
+            return created_files
+            
+        except Exception as e:
+            st.error(f"❌ 保存笔记文件失败: {e}")
+            return []
+        
+
+    def _configure_concurrent_processing_from_settings(
+        self, 
+        step2_processor, 
+        num_knowledge_points: int, 
+        concurrent_settings: dict
+    ):
+        """
+        根据用户设置配置并发处理参数
+        """
+        from concurrent_processor import ConcurrentConfig
+        
+        # 使用用户设置或智能默认值
+        max_concurrent = min(
+            concurrent_settings.get('max_concurrent', 20),
+            num_knowledge_points
+        )
+        
+        concurrent_config = ConcurrentConfig(
+            max_concurrent=max_concurrent,
+            max_retries=concurrent_settings.get('max_retries', 3),
+            retry_delay=1.0,
+            timeout=concurrent_settings.get('timeout', 60),
+            rate_limit_delay=60.0
+        )
+        
+        # 更新统计信息
+        self.concurrent_stats.update({
+            'total_tasks': num_knowledge_points,
+            'max_concurrent': max_concurrent,
+            'completed_tasks': 0,
+            'failed_tasks': 0
+        })
+        
+        step2_processor.set_concurrent_config(concurrent_config)
+        
+        return concurrent_config
+
 # 模型配置缓存文件路径
 MODEL_CONFIG_CACHE_PATH = os.path.join(os.path.dirname(__file__), '.model_configs_cache.json')
 
@@ -1140,6 +1457,22 @@ else:
             if not st.session_state.edit_mode:
                 # 显示第一步结果
                 viewer_result = render_step1_result_viewer(two_step_state['analysis_result'])
+
+                if viewer_result['action'] == 'none':  # 用户还在查看结果，显示设置
+                    st.subheader("🚀 第二步处理配置")
+                    
+                    # 分析知识点数量
+                    knowledge_points = two_step_state['analysis_result'].get('knowledge_points', [])
+                    num_knowledge_points = len(knowledge_points)
+                    
+                    # 显示并发策略信息
+                    render_concurrent_strategy_info(num_knowledge_points)
+                    
+                    # 显示并发处理设置
+                    concurrent_settings = render_concurrent_settings()
+                    
+                    # 保存设置到session state
+                    st.session_state.concurrent_settings = concurrent_settings
                 
                 if viewer_result['action'] == 'continue':
                     # 继续第二步（集成智能分段）
@@ -1201,7 +1534,6 @@ else:
             if SEGMENTATION_AVAILABLE and segmentation_settings.get('use_segmentation', False):
                 st.subheader("📊 智能分段效果")
                 
-                # 模拟分段统计（实际应该从处理结果中获取）
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Token减少", "65.2%", help="智能分段带来的token节省")
@@ -1209,6 +1541,18 @@ else:
                     st.metric("处理时间", "45s", delta="-23s", help="相比传统方式的时间节省")
                 with col3:
                     st.metric("分段数量", "6", help="生成的字幕分段数量")
+            
+            # 显示并发处理结果（如果使用了）
+            if processor.concurrent_stats.get('used_concurrent', False):
+                st.subheader("🚀 并发处理效果")
+                render_concurrent_results_summary({
+                    'total_knowledge_points': processor.concurrent_stats.get('total_tasks', 0),
+                    'successful_notes': processor.concurrent_stats.get('completed_tasks', 0),
+                    'total_processing_time': processor.concurrent_stats.get('total_processing_time', 0),
+                    'used_concurrent': True,
+                    'estimated_time_saved': processor.concurrent_stats.get('estimated_time_saved', 0),
+                    'concurrent_stats': processor.concurrent_stats
+                })
             
             # 重置按钮
             if st.button("🔄 处理新文件", use_container_width=True):

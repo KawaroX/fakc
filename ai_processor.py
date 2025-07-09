@@ -4,10 +4,10 @@ import re
 import datetime
 import json
 from openai import OpenAI
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
-# 导入智能分段相关模块
 from intelligent_segmenter import IntelligentSegmenter, Segment
+from concurrent_processor import run_concurrent_processing, ConcurrentConfig
 
 class AIProcessor:
     def __init__(self, api_key: str, base_url: str, model: str):
@@ -15,6 +15,18 @@ class AIProcessor:
         self.model = model
         # 初始化智能分段器
         self.segmenter = IntelligentSegmenter()
+
+        # 新增：并发配置
+        self.concurrent_config = ConcurrentConfig(
+            max_concurrent=20,      # API限制
+            max_retries=3,          # 最大重试次数
+            retry_delay=1.0,        # 重试延迟
+            timeout=60,             # 单个任务超时
+            rate_limit_delay=60.0   # 速率限制等待时间
+        )
+        
+        # 用于进度回调的属性
+        self.progress_callback = None
     
     # 第一步：知识点分析与架构构建
     def extract_knowledge_points_step1(self, subtitle_content: str, metadata: Dict[str, str]) -> Dict:
@@ -158,73 +170,73 @@ class AIProcessor:
         
         return all_notes
     
-    def _generate_notes_from_individual_segments(self, segments: List[Segment], 
-                                           analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-        """
-        基于独立分段结果生成笔记（每个知识点对应一个段落）
-        """
-        all_notes = []
-        knowledge_points = analysis_result.get('knowledge_points', [])
+    # def _generate_notes_from_individual_segments(self, segments: List[Segment], 
+    #                                        analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+    #     """
+    #     基于独立分段结果生成笔记（每个知识点对应一个段落）
+    #     """
+    #     all_notes = []
+    #     knowledge_points = analysis_result.get('knowledge_points', [])
         
-        print(f"📝 开始处理 {len(segments)} 个独立段落...")
+    #     print(f"📝 开始处理 {len(segments)} 个独立段落...")
         
-        # 为每个分段单独处理（每个分段只对应一个知识点）
-        for i, segment in enumerate(segments, 1):
-            if not segment.text.strip():  # 跳过空分段
-                print(f"⚠️ 跳过空分段 {i}")
-                continue
+    #     # 为每个分段单独处理（每个分段只对应一个知识点）
+    #     for i, segment in enumerate(segments, 1):
+    #         if not segment.text.strip():  # 跳过空分段
+    #             print(f"⚠️ 跳过空分段 {i}")
+    #             continue
                 
-            # 每个分段应该只有一个知识点
-            if len(segment.knowledge_points) != 1:
-                print(f"⚠️ 分段 {i} 包含 {len(segment.knowledge_points)} 个知识点，跳过")
-                continue
+    #         # 每个分段应该只有一个知识点
+    #         if len(segment.knowledge_points) != 1:
+    #             print(f"⚠️ 分段 {i} 包含 {len(segment.knowledge_points)} 个知识点，跳过")
+    #             continue
             
-            kp_id = segment.knowledge_points[0]
+    #         kp_id = segment.knowledge_points[0]
             
-            # 找到对应的知识点
-            target_kp = None
-            for kp in knowledge_points:
-                if kp.get('id') == kp_id:
-                    target_kp = kp
-                    break
+    #         # 找到对应的知识点
+    #         target_kp = None
+    #         for kp in knowledge_points:
+    #             if kp.get('id') == kp_id:
+    #                 target_kp = kp
+    #                 break
             
-            if not target_kp:
-                print(f"⚠️ 找不到知识点 {kp_id}，跳过分段 {i}")
-                continue
+    #         if not target_kp:
+    #             print(f"⚠️ 找不到知识点 {kp_id}，跳过分段 {i}")
+    #             continue
             
-            # 构建单个知识点的处理提示词
-            single_kp_prompt = self._build_single_knowledge_point_prompt(
-                segment, target_kp, analysis_result, metadata
-            )
+    #         # 构建单个知识点的处理提示词
+    #         single_kp_prompt = self._build_single_knowledge_point_prompt(
+    #             segment, target_kp, analysis_result, metadata
+    #         )
             
-            try:
-                print(f"🤖 处理知识点: {target_kp.get('concept_name', kp_id)} (分段 {i}/{len(segments)})")
+    #         try:
+    #             print(f"🤖 处理知识点: {target_kp.get('concept_name', kp_id)} (分段 {i}/{len(segments)})")
                 
-                # 调用AI处理单个知识点
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": single_kp_prompt}],
-                    temperature=0,
-                )
+    #             # 调用AI处理单个知识点
+    #             response = self.client.chat.completions.create(
+    #                 model=self.model,
+    #                 messages=[{"role": "user", "content": single_kp_prompt}],
+    #                 temperature=0,
+    #             )
                 
-                # 解析AI返回的单个笔记（不包含分隔符）
-                note_content = response.choices[0].message.content.strip()
+    #             # 解析AI返回的单个笔记（不包含分隔符）
+    #             note_content = response.choices[0].message.content.strip()
                 
-                # 解析单个笔记
-                parsed_note = self._parse_single_note_response(note_content, target_kp, metadata)
+    #             # 解析单个笔记
+    #             parsed_note = self._parse_single_note_response(note_content, target_kp, metadata)
                 
-                if parsed_note:
-                    all_notes.append(parsed_note)
-                    print(f"✅ 成功生成笔记: {target_kp.get('concept_name', kp_id)}")
-                else:
-                    print(f"⚠️ 解析笔记失败: {target_kp.get('concept_name', kp_id)}")
+    #             if parsed_note:
+    #                 all_notes.append(parsed_note)
+    #                 print(f"✅ 成功生成笔记: {target_kp.get('concept_name', kp_id)}")
+    #             else:
+    #                 print(f"⚠️ 解析笔记失败: {target_kp.get('concept_name', kp_id)}")
                 
-            except Exception as e:
-                print(f"⚠️ 处理知识点 {kp_id} 失败: {e}")
-                continue
+    #         except Exception as e:
+    #             print(f"⚠️ 处理知识点 {kp_id} 失败: {e}")
+    #             continue
         
-        print(f"✅ 独立分段处理完成，共生成 {len(all_notes)} 个笔记")
-        return all_notes
+    #     print(f"✅ 独立分段处理完成，共生成 {len(all_notes)} 个笔记")
+    #     return all_notes
     
     def _build_segment_prompt(self, segment: Segment, related_kps: List[Dict], 
                             analysis_result: Dict, metadata: Dict[str, str]) -> str:
@@ -700,7 +712,6 @@ CONTENT:
 
 请直接输出一个完整的markdown笔记，格式如下：
 
-```yaml
 ---
 title: "【{subject}】{{concept_name}}"
 aliases: ["{{concept_name}}"]
@@ -713,7 +724,6 @@ exam_importance: "{{importance_level}}"
 concept_id: "{{id}}"
 created: "{{当前时间}}"
 ---
-
 # 【{subject}】{{concept_name}}
 
 ## 核心定义
@@ -735,7 +745,11 @@ created: "{{当前时间}}"
 
 ---
 *视频时间段：{time_range}*
-```
+
+注意：
+1. 确保只有开头和结尾各一个"---"分隔符
+2. YAML部分不要包含额外的分隔符
+3. 直接输出markdown格式，不要用代码块包装
 
 请严格按照上述要求，为提供的知识点生成对应的完整笔记。直接输出笔记内容，不需要额外说明。不要使用任何分隔符，直接输出一个完整的markdown笔记。
 """
@@ -759,36 +773,58 @@ created: "{{当前时间}}"
         )
 
     def _parse_single_note_response(self, response_content: str, knowledge_point: Dict, metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
-        """解析单个笔记的AI响应（不包含分隔符的格式）"""
+        """解析单个笔记的AI响应 - 正确处理多个---的版本"""
         try:
-            # 查找YAML部分
-            yaml_match = re.search(r'```yaml\s*\n(.*?)\n```', response_content, re.DOTALL)
-            if not yaml_match:
-                yaml_match = re.search(r'---\s*\n(.*?)\n---', response_content, re.DOTALL)
+            response_content = response_content.strip()
             
-            yaml_content = ""
-            markdown_content = response_content
+            # 检查是否以---开头（标准markdown frontmatter格式）
+            if response_content.startswith('---'):
+                # 找到第一个---的结束位置
+                first_separator_end = response_content.find('\n', 3)  # 跳过开头的---
+                if first_separator_end == -1:
+                    print("⚠️ 格式错误：找不到第一个---后的换行")
+                    return None
+                
+                # 从第一个---后开始查找第二个---
+                second_separator_start = response_content.find('\n---', first_separator_end)
+                if second_separator_start == -1:
+                    print("⚠️ 格式错误：找不到第二个---")
+                    return None
+                
+                # 提取YAML内容（在两个---之间）
+                yaml_content = response_content[first_separator_end + 1:second_separator_start].strip()
+                
+                # 找到第二个---行的结束位置
+                second_separator_end = response_content.find('\n', second_separator_start + 4)
+                if second_separator_end == -1:
+                    second_separator_end = second_separator_start + 4
+                
+                # 提取markdown内容（第二个---之后的所有内容）
+                markdown_content = response_content[second_separator_end + 1:].strip()
+                
+            else:
+                print("⚠️ 不是标准frontmatter格式，使用默认处理")
+                yaml_content = ""
+                markdown_content = response_content
             
-            if yaml_match:
-                yaml_content = yaml_match.group(1).strip()
-                # 移除YAML部分，获取markdown内容
-                markdown_content = re.sub(r'```yaml\s*\n.*?\n```', '', response_content, flags=re.DOTALL)
-                markdown_content = re.sub(r'---\s*\n.*?\n---', '', markdown_content, flags=re.DOTALL)
-                markdown_content = markdown_content.strip()
-            
-            # 解析YAML元数据
+            # 解析YAML数据
             yaml_data = {}
             if yaml_content:
                 try:
                     yaml_data = yaml.safe_load(yaml_content)
+                    if yaml_data is None:
+                        yaml_data = {}
+                    print(f"✅ YAML解析成功，包含 {len(yaml_data)} 个字段")
                 except yaml.YAMLError as e:
                     print(f"⚠️ YAML解析失败: {e}")
+                    print(f"YAML内容前200字符: {yaml_content[:200]}")
                     yaml_data = {}
             
-            # 如果没有YAML，从知识点生成基本元数据
+            # 如果YAML解析失败或为空，生成默认的元数据
             if not yaml_data:
                 yaml_data = {
                     'title': f"【{metadata['subject']}】{knowledge_point.get('concept_name', '未命名概念')}",
+                    'aliases': [knowledge_point.get('concept_name', '未命名概念')],
                     'tags': [metadata['subject'], knowledge_point.get('concept_type', '定义性概念')],
                     'source': metadata['source'],
                     'subject': metadata['subject'],
@@ -801,21 +837,26 @@ created: "{{当前时间}}"
                     yaml_data['time_range'] = knowledge_point['time_range']
                 if knowledge_point.get('importance_level'):
                     yaml_data['exam_importance'] = knowledge_point['importance_level']
+                
+                print(f"✅ 使用默认YAML数据：{yaml_data.get('title', '未命名')}")
             
-            # 构建笔记对象
+            # 确保必要字段存在
+            if 'title' not in yaml_data:
+                yaml_data['title'] = f"【{metadata['subject']}】{knowledge_point.get('concept_name', '未命名概念')}"
+            
+            # 返回标准数据结构（与原来保持一致）
             note = {
-                'yaml_metadata': yaml_data,
-                'content': markdown_content,
-                'title': yaml_data.get('title', knowledge_point.get('concept_name', '未命名概念')),
-                'concept_id': knowledge_point.get('id', ''),
-                'concept_name': knowledge_point.get('concept_name', ''),
-                'subject': metadata['subject']
+                'yaml': yaml_data,           # 使用 'yaml' 键名
+                'content': markdown_content  # 使用 'content' 键名
             }
             
+            print(f"✅ 笔记解析成功: {yaml_data.get('title', '未命名')}")
             return note
             
         except Exception as e:
             print(f"❌ 解析单个笔记失败: {e}")
+            print(f"响应内容长度: {len(response_content)}")
+            print(f"响应内容前500字符: {response_content[:500]}")
             return None
     
     def enhance_concept_relationships(self, all_notes: List[Dict], existing_concepts: Dict) -> List[Dict]:
@@ -1255,3 +1296,248 @@ MODIFIED: false
         except Exception as e:
             print(f"⚠️ 解析增强响应失败: {e}")
             return None
+        
+    def set_progress_callback(self, callback):
+        """设置进度回调函数"""
+        self.progress_callback = callback
+    
+    def set_concurrent_config(self, config: ConcurrentConfig):
+        """设置并发配置"""
+        self.concurrent_config = config
+    
+    def _generate_notes_from_individual_segments(self, segments: List[Segment], 
+                                           analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """
+        基于独立分段结果生成笔记（每个知识点对应一个段落）- 并发版本
+        """
+        knowledge_points = analysis_result.get('knowledge_points', [])
+        
+        # 验证分段数据
+        valid_segments = []
+        for i, segment in enumerate(segments, 1):
+            if not segment.text.strip():
+                print(f"⚠️ 跳过空分段 {i}")
+                continue
+                
+            if len(segment.knowledge_points) != 1:
+                print(f"⚠️ 分段 {i} 包含 {len(segment.knowledge_points)} 个知识点，跳过")
+                continue
+            
+            kp_id = segment.knowledge_points[0]
+            
+            # 找到对应的知识点
+            target_kp = None
+            for kp in knowledge_points:
+                if kp.get('id') == kp_id:
+                    target_kp = kp
+                    break
+            
+            if not target_kp:
+                print(f"⚠️ 找不到知识点 {kp_id}，跳过分段 {i}")
+                continue
+            
+            valid_segments.append((segment, target_kp))
+        
+        if not valid_segments:
+            print("❌ 没有有效的分段可以处理")
+            return []
+        
+        print(f"📝 开始并发处理 {len(valid_segments)} 个知识点...")
+        
+        # 检查是否应该使用并发处理
+        if len(valid_segments) <= 2:
+            # 如果知识点很少，使用传统的逐个处理方式
+            print("🔄 知识点数量较少，使用传统方式处理...")
+            return self._process_segments_traditionally(valid_segments, analysis_result, metadata)
+        
+        # 准备并发处理的数据
+        knowledge_points_data = []
+        for segment, target_kp in valid_segments:
+            # 构建传递给并发处理器的数据结构
+            kp_data = {
+                'segment': segment,
+                'target_kp': target_kp,
+                'analysis_result': analysis_result,
+                'metadata': metadata
+            }
+            kp_id = target_kp.get('id', 'unknown')
+            knowledge_points_data.append((kp_id, kp_data))
+        
+        # 构建提示词生成函数
+        def prompt_builder(kp_data):
+            return self._build_single_knowledge_point_prompt(
+                kp_data['segment'],
+                kp_data['target_kp'],
+                kp_data['analysis_result'],
+                kp_data['metadata']
+            )
+        
+        # 进度回调函数
+        def progress_callback(completed, total):
+            if self.progress_callback:
+                self.progress_callback(completed, total)
+            print(f"📊 处理进度: {completed}/{total} ({completed/total*100:.1f}%)")
+        
+        # 估计剩余的API调用次数（这里可以根据实际情况调整）
+        estimated_remaining_calls = min(20, len(valid_segments))  # 保守估计
+        
+        try:
+            # 执行并发处理
+            results, stats = run_concurrent_processing(
+                knowledge_points_data=knowledge_points_data,
+                prompt_builder=prompt_builder,
+                client=self.client,
+                model=self.model,
+                config=self.concurrent_config,
+                progress_callback=progress_callback,
+                estimated_remaining_calls=estimated_remaining_calls
+            )
+            
+            # 处理并发结果
+            all_notes = []
+            failed_tasks = []
+            
+            for kp_id, original_data, result, error in results:
+                if result is not None and error is None:
+                    # 成功的任务
+                    try:
+                        parsed_note = self._parse_single_note_response(
+                            result, 
+                            original_data['target_kp'], 
+                            original_data['metadata']
+                        )
+                        if parsed_note:
+                            all_notes.append(parsed_note)
+                            print(f"✅ 成功生成笔记: {original_data['target_kp'].get('concept_name', kp_id)}")
+                        else:
+                            print(f"⚠️ 解析笔记失败: {original_data['target_kp'].get('concept_name', kp_id)}")
+                            failed_tasks.append((kp_id, original_data))
+                    except Exception as e:
+                        print(f"⚠️ 处理结果失败 {kp_id}: {e}")
+                        failed_tasks.append((kp_id, original_data))
+                else:
+                    # 失败的任务
+                    print(f"❌ 知识点处理失败 {kp_id}: {error}")
+                    failed_tasks.append((kp_id, original_data))
+            
+            # 打印统计信息
+            print(f"📊 并发处理统计:")
+            print(f"  - 总任务数: {stats['total_tasks']}")
+            print(f"  - 成功完成: {stats['completed_tasks']}")
+            print(f"  - 失败任务: {stats['failed_tasks']}")
+            print(f"  - 总重试次数: {stats['total_retries']}")
+            print(f"  - 总处理时间: {stats['total_processing_time']:.2f}秒")
+            print(f"  - 处理批次: {stats['batches_processed']}")
+            
+            # 如果有失败的任务，可以选择用传统方式重试
+            if failed_tasks and len(failed_tasks) <= 3:  # 只对少量失败任务重试
+                print(f"🔄 对 {len(failed_tasks)} 个失败任务使用传统方式重试...")
+                retry_segments = [(data['segment'], data['target_kp']) for _, data in failed_tasks]
+                retry_notes = self._process_segments_traditionally(retry_segments, analysis_result, metadata)
+                all_notes.extend(retry_notes)
+            
+            print(f"✅ 并发处理完成，共生成 {len(all_notes)} 个笔记")
+
+            if all_notes:
+                print(f"\n🔍 调试输出：共 {len(all_notes)} 个笔记")
+                for i, note in enumerate(all_notes[:3]):  # 只输出前3个避免太多日志
+                    debug_note_structure(note, i)
+                
+                # ########################################################self._validate_notes_structure(all_notes)
+
+            print(f"✅ 独立分段处理完成，共生成 {len(all_notes)} 个笔记")
+            return all_notes
+            
+        except Exception as e:
+            print(f"❌ 并发处理失败，回退到传统方式: {e}")
+            return self._process_segments_traditionally(valid_segments, analysis_result, metadata)
+    
+    def _process_segments_traditionally(self, valid_segments: List[Tuple], 
+                                      analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """
+        传统方式处理分段（逐个处理，作为并发处理的后备方案）
+        """
+        all_notes = []
+        total_segments = len(valid_segments)
+        
+        for i, (segment, target_kp) in enumerate(valid_segments, 1):
+            kp_id = target_kp.get('id', 'unknown')
+            
+            # 构建单个知识点的处理提示词
+            single_kp_prompt = self._build_single_knowledge_point_prompt(
+                segment, target_kp, analysis_result, metadata
+            )
+            
+            try:
+                print(f"🤖 处理知识点: {target_kp.get('concept_name', kp_id)} ({i}/{total_segments})")
+                
+                # 调用进度回调
+                if self.progress_callback:
+                    self.progress_callback(i-1, total_segments)
+                
+                # 调用AI处理单个知识点
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": single_kp_prompt}],
+                    temperature=0,
+                )
+                
+                # 解析AI返回的单个笔记（不包含分隔符）
+                note_content = response.choices[0].message.content.strip()
+                
+                # 解析单个笔记
+                parsed_note = self._parse_single_note_response(note_content, target_kp, metadata)
+                
+                if parsed_note:
+                    all_notes.append(parsed_note)
+                    print(f"✅ 成功生成笔记: {target_kp.get('concept_name', kp_id)}")
+                else:
+                    print(f"⚠️ 解析笔记失败: {target_kp.get('concept_name', kp_id)}")
+                
+            except Exception as e:
+                print(f"⚠️ 处理知识点 {kp_id} 失败: {e}")
+                continue
+        
+        # 最后一次调用进度回调
+        if self.progress_callback:
+            self.progress_callback(total_segments, total_segments)
+        
+        print(f"✅ 传统方式处理完成，共生成 {len(all_notes)} 个笔记")
+        return all_notes
+    
+    def estimate_remaining_api_calls(self) -> int:
+        """
+        估计剩余的API调用次数
+        
+        这是一个简单的实现，实际项目中可能需要更复杂的逻辑
+        比如跟踪实际的API使用情况
+        
+        Returns:
+            估计的剩余调用次数
+        """
+        # 这里可以根据实际情况实现更复杂的逻辑
+        # 比如记录开始时间，计算已用次数等
+        return 20  # 保守估计
+
+def debug_note_structure(note: Dict[str, Any], note_index: int = 0):
+    """调试输出笔记结构"""
+    print(f"\n=== 调试笔记 {note_index + 1} 结构 ===")
+    print(f"笔记键: {list(note.keys())}")
+    
+    if 'yaml' in note:
+        print(f"YAML类型: {type(note['yaml'])}")
+        if isinstance(note['yaml'], dict):
+            print(f"YAML键: {list(note['yaml'].keys())}")
+            print(f"标题: {note['yaml'].get('title', '未找到标题')}")
+        else:
+            print(f"YAML内容: {note['yaml']}")
+    else:
+        print("❌ 缺少yaml字段")
+    
+    if 'content' in note:
+        content_length = len(note['content']) if note['content'] else 0
+        print(f"内容长度: {content_length}")
+        print(f"内容前100字符: {note['content'][:100] if note['content'] else '空内容'}")
+    else:
+        print("❌ 缺少content字段")
+    print("=" * 40)
