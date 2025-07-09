@@ -262,7 +262,7 @@ class StreamlitLawExamNoteProcessor:
                 # 执行智能分段
                 try:
                     file_format = step2_processor._detect_subtitle_format(subtitle_content)
-                    segments = segmenter.segment_subtitle_content(
+                    segments = self.segmenter.segment_by_knowledge_points(
                         subtitle_content, 
                         analysis_result, 
                         file_format
@@ -776,7 +776,7 @@ class StreamlitLawExamNoteProcessor:
             )
             
             # 执行分段（仅预览，不显示详细日志）
-            segments = segmenter.segment_subtitle_content(
+            segments = segmenter.segment_by_knowledge_points(
                 subtitle_content,
                 analysis_result,
                 'auto'

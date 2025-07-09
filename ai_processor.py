@@ -63,7 +63,7 @@ class AIProcessor:
                 file_format = self._detect_subtitle_format(subtitle_content)
                 
                 # 执行智能分段
-                segments = self.segmenter.segment_subtitle_content(
+                segments = self.segmenter.segment_by_knowledge_points(
                     subtitle_content, 
                     analysis_result, 
                     file_format
@@ -74,8 +74,8 @@ class AIProcessor:
                 print(f"📊 分段摘要: {summary['total_segments']}个分段, "
                       f"Token减少{(1-summary['total_tokens']/self.segmenter._estimate_token_count(subtitle_content))*100:.1f}%")
                 
-                # 使用分段内容生成笔记
-                return self._generate_notes_from_segments(segments, analysis_result, metadata)
+                # 使用独立分段内容生成笔记
+                return self._generate_notes_from_individual_segments(segments, analysis_result, metadata)
             else:
                 print("📝 使用传统方式处理...")
                 # 传统方式：使用完整字幕内容
@@ -156,6 +156,74 @@ class AIProcessor:
                 print(f"⚠️ 分段处理失败，跳过: {e}")
                 continue
         
+        return all_notes
+    
+    def _generate_notes_from_individual_segments(self, segments: List[Segment], 
+                                           analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
+        """
+        基于独立分段结果生成笔记（每个知识点对应一个段落）
+        """
+        all_notes = []
+        knowledge_points = analysis_result.get('knowledge_points', [])
+        
+        print(f"📝 开始处理 {len(segments)} 个独立段落...")
+        
+        # 为每个分段单独处理（每个分段只对应一个知识点）
+        for i, segment in enumerate(segments, 1):
+            if not segment.text.strip():  # 跳过空分段
+                print(f"⚠️ 跳过空分段 {i}")
+                continue
+                
+            # 每个分段应该只有一个知识点
+            if len(segment.knowledge_points) != 1:
+                print(f"⚠️ 分段 {i} 包含 {len(segment.knowledge_points)} 个知识点，跳过")
+                continue
+            
+            kp_id = segment.knowledge_points[0]
+            
+            # 找到对应的知识点
+            target_kp = None
+            for kp in knowledge_points:
+                if kp.get('id') == kp_id:
+                    target_kp = kp
+                    break
+            
+            if not target_kp:
+                print(f"⚠️ 找不到知识点 {kp_id}，跳过分段 {i}")
+                continue
+            
+            # 构建单个知识点的处理提示词
+            single_kp_prompt = self._build_single_knowledge_point_prompt(
+                segment, target_kp, analysis_result, metadata
+            )
+            
+            try:
+                print(f"🤖 处理知识点: {target_kp.get('concept_name', kp_id)} (分段 {i}/{len(segments)})")
+                
+                # 调用AI处理单个知识点
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": single_kp_prompt}],
+                    temperature=0,
+                )
+                
+                # 解析AI返回的单个笔记（不包含分隔符）
+                note_content = response.choices[0].message.content.strip()
+                
+                # 解析单个笔记
+                parsed_note = self._parse_single_note_response(note_content, target_kp, metadata)
+                
+                if parsed_note:
+                    all_notes.append(parsed_note)
+                    print(f"✅ 成功生成笔记: {target_kp.get('concept_name', kp_id)}")
+                else:
+                    print(f"⚠️ 解析笔记失败: {target_kp.get('concept_name', kp_id)}")
+                
+            except Exception as e:
+                print(f"⚠️ 处理知识点 {kp_id} 失败: {e}")
+                continue
+        
+        print(f"✅ 独立分段处理完成，共生成 {len(all_notes)} 个笔记")
         return all_notes
     
     def _build_segment_prompt(self, segment: Segment, related_kps: List[Dict], 
@@ -593,6 +661,162 @@ CONTENT:
 5. **格式标准**：严格遵循技术规范
 
 请开始根据分析结果生成完整的Obsidian笔记，按序号顺序处理每个知识点，不遗漏任何概念。严格按照格式输出，不需要额外说明。"""
+
+
+    # 新增：单个知识点处理的提示词模板（不使用分隔符）
+    SINGLE_KNOWLEDGE_POINT_PROMPT_TEMPLATE = """\
+你是专业的法考笔记整理专家。请根据字幕片段和知识点分析，生成一个完整的Obsidian笔记。
+
+## 输入内容
+
+**字幕片段**（时间范围: {time_range}）：
+{segment_text}
+
+**目标知识点**：
+{knowledge_point}
+
+**课程概览**：
+{course_overview}
+
+**教学风格洞察**：
+{teaching_insights}
+
+**课程信息**：
+- 科目：{subject}
+- 来源：{source}
+- 课程链接：{course_url}
+
+## 处理要求
+
+**精确对应**：严格基于提供的单个知识点，生成对应的完整笔记
+
+**充分利用片段内容**：深度挖掘字幕片段中的信息，保留老师的原始表述和重要细节
+
+**时间戳处理**：使用time_range信息添加准确的时间戳标记
+
+**概念关联**：基于relationships信息建立准确的双链关系
+
+## 输出格式
+
+请直接输出一个完整的markdown笔记，格式如下：
+
+```yaml
+---
+title: "【{subject}】{{concept_name}}"
+aliases: ["{{concept_name}}"]
+tags: ["{subject}", "{{concept_type}}", "{{importance_level}}"]
+source: "{source}"
+course_url: "{course_url}"
+time_range: "{{time_range}}"
+subject: "{subject}"
+exam_importance: "{{importance_level}}"
+concept_id: "{{id}}"
+created: "{{当前时间}}"
+---
+
+# 【{subject}】{{concept_name}}
+
+## 核心定义
+
+⏰ [时间戳]
+[基于teacher_original和字幕片段的定义]
+
+[智能选择的其他章节]
+
+## 记忆要点
+
+🔮 [关键记忆点] — [简洁解释]
+📱 [应用场景] — [典型情况]  
+💡 [重要提醒] — [易错提示]
+
+## 相关概念
+
+[基于relationships的双链列表]
+
+---
+*视频时间段：{time_range}*
+```
+
+请严格按照上述要求，为提供的知识点生成对应的完整笔记。直接输出笔记内容，不需要额外说明。不要使用任何分隔符，直接输出一个完整的markdown笔记。
+"""
+
+    def _build_single_knowledge_point_prompt(self, segment: Segment, knowledge_point: Dict, 
+                                       analysis_result: Dict, metadata: Dict[str, str]) -> str:
+        """构建单个知识点的处理提示词（不使用分隔符）"""
+        # 提取课程概览和教学洞察
+        course_overview = analysis_result.get('course_overview', {})
+        teaching_insights = analysis_result.get('teaching_insights', {})
+        
+        return self.SINGLE_KNOWLEDGE_POINT_PROMPT_TEMPLATE.format(
+            segment_text=segment.text,
+            time_range=f"{segment.time_range.start:.1f}-{segment.time_range.end:.1f}s",
+            knowledge_point=json.dumps(knowledge_point, ensure_ascii=False, indent=2),
+            course_overview=json.dumps(course_overview, ensure_ascii=False),
+            teaching_insights=json.dumps(teaching_insights, ensure_ascii=False),
+            subject=metadata['subject'],
+            source=metadata['source'],
+            course_url=metadata.get('course_url', '')
+        )
+
+    def _parse_single_note_response(self, response_content: str, knowledge_point: Dict, metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """解析单个笔记的AI响应（不包含分隔符的格式）"""
+        try:
+            # 查找YAML部分
+            yaml_match = re.search(r'```yaml\s*\n(.*?)\n```', response_content, re.DOTALL)
+            if not yaml_match:
+                yaml_match = re.search(r'---\s*\n(.*?)\n---', response_content, re.DOTALL)
+            
+            yaml_content = ""
+            markdown_content = response_content
+            
+            if yaml_match:
+                yaml_content = yaml_match.group(1).strip()
+                # 移除YAML部分，获取markdown内容
+                markdown_content = re.sub(r'```yaml\s*\n.*?\n```', '', response_content, flags=re.DOTALL)
+                markdown_content = re.sub(r'---\s*\n.*?\n---', '', markdown_content, flags=re.DOTALL)
+                markdown_content = markdown_content.strip()
+            
+            # 解析YAML元数据
+            yaml_data = {}
+            if yaml_content:
+                try:
+                    yaml_data = yaml.safe_load(yaml_content)
+                except yaml.YAMLError as e:
+                    print(f"⚠️ YAML解析失败: {e}")
+                    yaml_data = {}
+            
+            # 如果没有YAML，从知识点生成基本元数据
+            if not yaml_data:
+                yaml_data = {
+                    'title': f"【{metadata['subject']}】{knowledge_point.get('concept_name', '未命名概念')}",
+                    'tags': [metadata['subject'], knowledge_point.get('concept_type', '定义性概念')],
+                    'source': metadata['source'],
+                    'subject': metadata['subject'],
+                    'concept_id': knowledge_point.get('id', ''),
+                    'created': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                if metadata.get('course_url'):
+                    yaml_data['course_url'] = metadata['course_url']
+                if knowledge_point.get('time_range'):
+                    yaml_data['time_range'] = knowledge_point['time_range']
+                if knowledge_point.get('importance_level'):
+                    yaml_data['exam_importance'] = knowledge_point['importance_level']
+            
+            # 构建笔记对象
+            note = {
+                'yaml_metadata': yaml_data,
+                'content': markdown_content,
+                'title': yaml_data.get('title', knowledge_point.get('concept_name', '未命名概念')),
+                'concept_id': knowledge_point.get('id', ''),
+                'concept_name': knowledge_point.get('concept_name', ''),
+                'subject': metadata['subject']
+            }
+            
+            return note
+            
+        except Exception as e:
+            print(f"❌ 解析单个笔记失败: {e}")
+            return None
     
     def enhance_concept_relationships(self, all_notes: List[Dict], existing_concepts: Dict) -> List[Dict]:
         """让AI分析所有笔记内容，增强概念关系"""
