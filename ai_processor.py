@@ -1000,7 +1000,7 @@ MODIFIED: false
                     # 匹配开头：```后跟可选的语言名称
                     # 匹配结尾：```可能前后有空白
                     code_block_pattern = re.compile(
-                        r'^\s*```[a-zA-Z0-9_+-]*\s*\n?(.*?)\s*```\s*',
+                        r'^\s*```[a-zA-Z0-9_+-]*\s*\n?(.*?)\s*```\s*', 
                         re.DOTALL
                     )
                     

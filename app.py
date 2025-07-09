@@ -274,43 +274,20 @@ class StreamlitLawExamNoteProcessor:
                         
                         st.success("✅ 智能分段完成！")
                         
-                        # 使用完整的分段界面
-                        interface_result = render_complete_segmentation_interface(
-                            segments, 
-                            original_tokens,
-                            show_controls=False,  # 已经分段完成，不需要控制面板
-                            show_details=segmentation_settings.get('show_details', False)
-                        )
+                        # 显示分段摘要
+                        render_segmentation_summary(segments, original_tokens)
                         
-                        if interface_result['action'] == 'confirm':
-                            st.info("✅ 确认分段结果，使用智能分段继续生成笔记...")
-                            return self._generate_notes_with_segments(
-                                step2_processor, segments, analysis_result, metadata
-                            )
-                        elif interface_result['action'] == 'fallback':
-                            st.info("📝 用户选择使用完整内容...")
-                            use_segmentation = False
-                        elif interface_result['action'] == 'retry':
-                            st.info("🔄 用户选择重新分段...")
-                            # 重新分段逻辑
-                            try:
-                                # 可以考虑调整参数后重新分段
-                                segments = segmenter.segment_subtitle_content(
-                                    subtitle_content, 
-                                    analysis_result, 
-                                    file_format
-                                )
-                                if segments:
-                                    st.rerun()  # 重新运行显示新的分段结果
-                                else:
-                                    st.warning("⚠️ 重新分段失败，将使用完整内容")
-                                    use_segmentation = False
-                            except Exception as e:
-                                st.warning(f"⚠️ 重新分段出错: {e}，将使用完整内容")
-                                use_segmentation = False
-                        else:
-                            # 用户还没有选择，暂停处理等待用户交互
-                            st.stop()
+                        # 可选：显示详细信息
+                        if segmentation_settings.get('show_details', False):
+                            with st.expander("📊 查看分段详情", expanded=False):
+                                render_segment_details(segments, show_content=False)
+                                render_segmentation_preview(segments, max_preview=3)
+                        
+                        # 自动继续使用分段结果生成笔记
+                        st.info("✅ 确认分段结果，使用智能分段继续生成笔记...")
+                        return self._generate_notes_with_segments(
+                            step2_processor, segments, analysis_result, metadata
+                        )
                     else:
                         st.warning("⚠️ 智能分段失败，将使用完整内容")
                         use_segmentation = False
@@ -573,10 +550,10 @@ class StreamlitLawExamNoteProcessor:
                 st.markdown(f"  - `{filename}`")
             
             # 8. 自动进行时间戳链接化处理
-            # if course_url:
-            #     st.info("\n🔗 自动进行时间戳链接化处理...")
-            #     self.timestamp_linker.process_subject_notes(selected_subject)
-            #     st.success("✅ 时间戳链接化处理完成。")
+            if course_url:
+                st.info("\n🔗 自动进行时间戳链接化处理...")
+                self.timestamp_linker.process_subject_notes(selected_subject)
+                st.success("✅ 时间戳链接化处理完成。")
             
             return created_files
             
@@ -822,9 +799,8 @@ class StreamlitLawExamNoteProcessor:
             
             # 检查是否启用了智能分段
             two_step_state = st.session_state.get('two_step_state', {})
-            segmentation_settings = two_step_state.get('segmentation_settings')
+            segmentation_settings = two_step_state.get('segmentation_settings', {})
             
-            # 安全地检查分段设置
             if segmentation_settings and segmentation_settings.get('use_segmentation', False):
                 st.success("✅ 智能分段已启用")
                 st.caption(f"缓冲区: {segmentation_settings.get('buffer_seconds', 30)}s")
