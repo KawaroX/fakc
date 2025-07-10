@@ -1089,6 +1089,19 @@ class StreamlitLawExamNoteProcessor:
             st.write("💾 保存笔记文件...")
             created_files = self._save_notes_to_files(enhanced_notes, metadata)
             
+            # 🆕 新增：为新概念建立反向关联
+            if created_files and enhanced_notes:
+                try:
+                    enhancer = self._get_siliconflow_enhancer()
+                    if enhancer:
+                        links_added = enhancer.reverse_linker.add_reverse_links_for_new_notes(enhanced_notes)
+                        if links_added > 0:
+                            st.success(f"✅ 反向概念关联完成，添加了 {links_added} 个链接")
+                        else:
+                            st.info("ℹ️ 未发现需要反向关联的概念")
+                except Exception as e:
+                    st.warning(f"⚠️ 反向关联过程中出现问题: {e}")
+                    
             # 重置进度状态
             self.processing_progress['is_processing'] = False
             
@@ -1680,6 +1693,9 @@ else:
 
         if not processor.concept_manager.load_database_from_file():
             render_warning_box(AppConstants.WARNING_MESSAGES["no_database"])
+        # # 临时！！！
+        # print("🔄 强制重新扫描概念库...")
+        # processor.concept_manager.scan_existing_notes()
         
         # AI模型选择（只显示概念增强模型）
         st.subheader("🤖 概念增强模型配置")
