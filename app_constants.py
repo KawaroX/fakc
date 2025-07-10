@@ -478,16 +478,16 @@ class ModelConfig:
         "subtitle_processing": {
             "step1": {
                 "base_url": "https://openrouter.ai/api/v1",
-                "model": "deepseek/deepseek-r1-0528:free"
+                "model": "tngtech/deepseek-r1t2-chimera:free"
             },
             "step2": {
                 "base_url": "https://openrouter.ai/api/v1",
-                "model": "deepseek/deepseek-r1-0528:free"
+                "model": "tngtech/deepseek-r1t2-chimera:free"
             }
         },
         "concept_enhancement": {
             "base_url": "https://openrouter.ai/api/v1", 
-            "model": "openrouter/cypher-alpha:free"
+            "model": "tngtech/deepseek-r1t2-chimera:free"
         }
     }
     
@@ -515,7 +515,7 @@ class ModelConfig:
                 "GPT-4 - 稳定可靠，结构化输出质量高"
             ],
             "step2": [
-                "GPT-4-Turbo - 生成速度快，格式规范",
+                "GPT-4.1 - 生成速度快，格式规范",
                 "Claude-Opus - 创作能力强，内容详实",
                 "Gemini-Pro - 支持长上下文，适合复杂笔记生成"
             ]
@@ -821,4 +821,136 @@ class ThemeConfig:
             "sans-serif"
         ],
         "code_font": "Consolas, Monaco, Courier New, monospace"
+    }
+
+# 将以下配置类直接添加到现有的 app_constants.py 文件末尾
+
+class TemplateConfig:
+    """模板系统配置类 - 完全自动化"""
+    
+    # 系统启用状态
+    TEMPLATE_SYSTEM_ENABLED = True
+    
+    # 默认模板类型（当concept_type未识别时使用）
+    DEFAULT_TEMPLATE_TYPE = "定义性概念"
+    
+    # 模板类型权重（用于多类型自动选择）
+    TEMPLATE_WEIGHTS = {
+        "法条规定": 1.25,      # 最高优先级
+        "构成要件": 1.2,
+        "判断标准": 1.15,
+        "程序性知识": 1.1,
+        "定义性概念": 1.0,     # 基准权重
+        "实务经验": 0.9        # 最低优先级
+    }
+    
+    # 重要性级别对应的章节限制
+    IMPORTANCE_SECTION_LIMITS = {
+        "高": None,     # 无限制，包含所有章节
+        "中": 5,        # 限制为5个主要章节  
+        "低": 3         # 限制为3个核心章节
+    }
+    
+    # 自动化设置
+    AUTOMATION_CONFIG = {
+        "fully_automatic": True,           # 完全自动化，用户无感知
+        "auto_template_selection": True,   # 自动模板选择
+        "auto_multi_type_merge": True,     # 自动合并多类型
+        "auto_fallback": True,             # 自动错误回退
+        "silent_processing": True          # 静默处理，不显示模板细节
+    }
+    
+    # AI提取配置
+    AI_EXTRACTION_CONFIG = {
+        "enable_ai_extraction": True,      # 启用AI信息提取
+        "extraction_timeout": 60,          # 提取超时时间（秒）
+        "retry_attempts": 3,               # 重试次数
+        "fallback_to_basic": True          # 失败时回退到基础模式
+    }
+    
+    # 内容验证配置
+    CONTENT_VALIDATION_CONFIG = {
+        "validate_yaml_format": True,      # 验证YAML格式
+        "validate_sections": True,         # 验证章节结构
+        "min_content_length": 50,          # 最小内容长度
+        "required_yaml_fields": [          # 必需的YAML字段
+            "title", "tags", "concept_id"
+        ]
+    }
+
+class TemplateAutomationConfig:
+    """模板自动化专用配置 - 确保用户无感知"""
+    
+    # 用户界面配置（最小化显示）
+    USER_INTERFACE = {
+        "show_template_selection": False,   # 不显示模板选择界面
+        "show_template_preview": False,     # 不显示模板预览
+        "show_processing_details": False,   # 不显示模板处理详情
+        "show_template_info": False,        # 不显示模板信息
+        "minimal_feedback": True            # 最小化反馈信息
+    }
+    
+    # 自动选择策略
+    AUTO_SELECTION = {
+        "selection_strategy": "weighted",   # 权重选择策略
+        "confidence_threshold": 0.6,        # 选择置信度阈值
+        "multi_type_strategy": "merge",     # 多类型合并策略
+        "fallback_template": "定义性概念",   # 默认fallback模板
+        "preserve_user_experience": True    # 保持用户体验一致性
+    }
+    
+    # 错误处理策略
+    ERROR_HANDLING = {
+        "silent_error_recovery": True,      # 静默错误恢复
+        "auto_fallback_on_failure": True,   # 失败时自动回退
+        "log_errors_internally": True,      # 内部记录错误日志
+        "never_break_user_flow": True       # 永不中断用户流程
+    }
+
+# 添加模板相关的处理消息（仅用于系统内部日志）
+class TemplateProcessingMessages:
+    """模板处理消息 - 仅用于系统内部日志"""
+    
+    # 内部处理状态
+    PROCESSING_STATUS = {
+        "template_selection_start": "开始自动模板选择",
+        "template_selected": "已选择模板: {template_type}",
+        "multi_type_detected": "检测到多类型: {types}",
+        "template_merged": "模板合并完成",
+        "ai_extraction_start": "开始AI信息提取", 
+        "ai_extraction_complete": "AI提取完成: {sections}个章节",
+        "note_generation_complete": "笔记生成完成",
+        "fallback_activated": "已启用fallback模式: {reason}"
+    }
+    
+    # 用户可见的处理消息（简化版）
+    USER_VISIBLE = {
+        "processing": "🤖 AI正在生成标准化笔记...",
+        "complete": "✅ 笔记生成完成",
+        "error_recovery": "🔄 正在优化处理方式..."
+    }
+
+# 扩展现有的UIConfig类，添加模板相关配置
+# 注意：这些配置确保模板功能对用户透明
+class TemplateUIExtension:
+    """模板UI扩展配置 - 确保用户界面简洁"""
+    
+    # 添加到现有FORM_CONFIG中的模板相关配置
+    TEMPLATE_FORM_CONFIG = {
+        # 不添加任何模板选择相关的按钮或界面元素
+        # 所有模板功能都在后台自动运行
+    }
+    
+    # 添加到现有EXPANDER_CONFIG中的配置
+    TEMPLATE_EXPANDER_CONFIG = {
+        # 不添加任何模板相关的展开器
+        # 保持界面简洁，用户无需了解模板细节
+    }
+    
+    # 进度显示配置
+    PROGRESS_CONFIG = {
+        "show_template_progress": False,     # 不显示模板处理进度
+        "show_overall_progress": True,       # 只显示总体进度
+        "template_progress_weight": 0.3,     # 模板处理在总进度中的权重
+        "seamless_integration": True         # 无缝集成到现有进度显示
     }

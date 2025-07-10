@@ -335,60 +335,6 @@ class StreamlitLawExamNoteProcessor:
     #         st.exception(e)
     #         return []
 
-    def _generate_notes_with_segments(
-        self,
-        step2_processor,
-        segments: List[Segment],
-        analysis_result: dict,
-        metadata: dict
-    ) -> List[str]:
-        """
-        使用智能分段结果生成笔记
-        
-        Args:
-            step2_processor: 第二步AI处理器
-            segments: 智能分段结果
-            analysis_result: 第一步分析结果
-            metadata: 元数据
-            
-        Returns:
-            生成的笔记文件路径列表
-        """
-        # 1. 扫描现有概念库
-        st.write("🔍 扫描现有概念库...")
-        self.concept_manager.scan_existing_notes()
-        existing_concepts = self.concept_manager.get_all_concepts_for_ai()
-        
-        # 2. 使用分段结果生成笔记
-        with st.spinner("🤖 AI正在根据分段结果生成笔记..."):
-            # 检查step2_processor是否有_generate_notes_from_segments方法
-            if hasattr(step2_processor, '_generate_notes_from_segments'):
-                all_notes = step2_processor._generate_notes_from_segments(
-                    segments, analysis_result, metadata
-                )
-            else:
-                # 如果没有专门的分段方法，使用传统方法但传入segments信息
-                # 可以将segments转换为字符串形式传给传统方法
-                segment_content = self._segments_to_content(segments)
-                all_notes = step2_processor.generate_notes_step2(
-                    analysis_result, segment_content, metadata
-                )
-        
-        if not all_notes:
-            st.error("❌ 基于分段的笔记生成失败")
-            return []
-        
-        st.success(f"✅ 生成了 {len(all_notes)} 个笔记")
-        
-        # 3. AI增强：优化概念关系
-        st.write("🔗 AI正在优化概念关系...")
-        enhanced_notes = step2_processor.enhance_concept_relationships(
-            all_notes, existing_concepts
-        )
-        
-        # 4. 生成笔记文件
-        return self._save_notes_to_files(enhanced_notes, metadata)
-
     def _generate_notes_traditional_method(
         self,
         step2_processor,

@@ -9,6 +9,15 @@ from typing import List, Dict, Any, Optional, Tuple
 from intelligent_segmenter import IntelligentSegmenter, Segment
 from concurrent_processor import run_concurrent_processing, ConcurrentConfig
 
+try:
+    from templates.concept_templates import TemplateRegistry
+    from templates.template_utils import TemplateUtils
+    TEMPLATE_SYSTEM_AVAILABLE = True
+    print("✅ 模板系统导入成功")
+except ImportError as e:
+    print(f"❌ 模板系统导入失败: {e}")
+    TEMPLATE_SYSTEM_AVAILABLE = False
+
 class AIProcessor:
     def __init__(self, api_key: str, base_url: str, model: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
@@ -27,6 +36,13 @@ class AIProcessor:
         
         # 用于进度回调的属性
         self.progress_callback = None
+
+        # 添加模板系统
+        if TEMPLATE_SYSTEM_AVAILABLE:
+            self.template_utils = TemplateUtils()
+            print("✅ 模板工具已初始化")
+        else:
+            self.template_utils = None
     
     def _separate_markdown_content(self, full_content: str) -> tuple:
         """
@@ -162,179 +178,33 @@ class AIProcessor:
             return 'srt'
         else:
             return 'txt'
-    
-    def _generate_notes_from_segments(self, segments: List[Segment], 
-                                    analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-        """
-        基于分段结果生成笔记
-        
-        Args:
-            segments: 智能分段结果
-            analysis_result: 第一步分析结果
-            metadata: 元数据
-            
-        Returns:
-            生成的笔记列表
-        """
-        all_notes = []
-        knowledge_points = analysis_result.get('knowledge_points', [])
-        
-        # 为每个分段构建对应的知识点组
-        for segment in segments:
-            if not segment.text.strip():  # 跳过空分段
-                continue
-                
-            # 找到与此分段相关的知识点
-            related_kps = []
-            for kp in knowledge_points:
-                if kp.get('id') in segment.knowledge_points:
-                    related_kps.append(kp)
-            
-            if not related_kps:  # 如果没有关联的知识点，跳过
-                continue
-            
-            # 构建分段处理的提示词
-            segment_prompt = self._build_segment_prompt(
-                segment, related_kps, analysis_result, metadata
-            )
-            
-            try:
-                # 调用AI处理分段
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": segment_prompt}],
-                    temperature=0,
-                )
-                
-                # 解析AI返回的笔记
-                segment_notes = self._parse_ai_response(response.choices[0].message.content)
-                if segment_notes:
-                    all_notes.extend(segment_notes)
-                    print(f"✅ 分段处理完成，生成 {len(segment_notes)} 个笔记")
-                
-            except Exception as e:
-                print(f"⚠️ 分段处理失败，跳过: {e}")
-                continue
-        
-        return all_notes
-    
-    # def _generate_notes_from_individual_segments(self, segments: List[Segment], 
-    #                                        analysis_result: Dict, metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-    #     """
-    #     基于独立分段结果生成笔记（每个知识点对应一个段落）
-    #     """
-    #     all_notes = []
-    #     knowledge_points = analysis_result.get('knowledge_points', [])
-        
-    #     print(f"📝 开始处理 {len(segments)} 个独立段落...")
-        
-    #     # 为每个分段单独处理（每个分段只对应一个知识点）
-    #     for i, segment in enumerate(segments, 1):
-    #         if not segment.text.strip():  # 跳过空分段
-    #             print(f"⚠️ 跳过空分段 {i}")
-    #             continue
-                
-    #         # 每个分段应该只有一个知识点
-    #         if len(segment.knowledge_points) != 1:
-    #             print(f"⚠️ 分段 {i} 包含 {len(segment.knowledge_points)} 个知识点，跳过")
-    #             continue
-            
-    #         kp_id = segment.knowledge_points[0]
-            
-    #         # 找到对应的知识点
-    #         target_kp = None
-    #         for kp in knowledge_points:
-    #             if kp.get('id') == kp_id:
-    #                 target_kp = kp
-    #                 break
-            
-    #         if not target_kp:
-    #             print(f"⚠️ 找不到知识点 {kp_id}，跳过分段 {i}")
-    #             continue
-            
-    #         # 构建单个知识点的处理提示词
-    #         single_kp_prompt = self._build_single_knowledge_point_prompt(
-    #             segment, target_kp, analysis_result, metadata
-    #         )
-            
-    #         try:
-    #             print(f"🤖 处理知识点: {target_kp.get('concept_name', kp_id)} (分段 {i}/{len(segments)})")
-                
-    #             # 调用AI处理单个知识点
-    #             response = self.client.chat.completions.create(
-    #                 model=self.model,
-    #                 messages=[{"role": "user", "content": single_kp_prompt}],
-    #                 temperature=0,
-    #             )
-                
-    #             # 解析AI返回的单个笔记（不包含分隔符）
-    #             note_content = response.choices[0].message.content.strip()
-                
-    #             # 解析单个笔记
-    #             parsed_note = self._parse_single_note_response(note_content, target_kp, metadata)
-                
-    #             if parsed_note:
-    #                 all_notes.append(parsed_note)
-    #                 print(f"✅ 成功生成笔记: {target_kp.get('concept_name', kp_id)}")
-    #             else:
-    #                 print(f"⚠️ 解析笔记失败: {target_kp.get('concept_name', kp_id)}")
-                
-    #         except Exception as e:
-    #             print(f"⚠️ 处理知识点 {kp_id} 失败: {e}")
-    #             continue
-        
-    #     print(f"✅ 独立分段处理完成，共生成 {len(all_notes)} 个笔记")
-    #     return all_notes
-    
-    def _build_segment_prompt(self, segment: Segment, related_kps: List[Dict], 
-                            analysis_result: Dict, metadata: Dict[str, str]) -> str:
-        """
-        构建分段处理的提示词
-        
-        Args:
-            segment: 分段对象
-            related_kps: 相关知识点列表
-            analysis_result: 完整分析结果
-            metadata: 元数据
-            
-        Returns:
-            构建好的提示词
-        """
-        # 提取课程概览和教学洞察
-        course_overview = analysis_result.get('course_overview', {})
-        teaching_insights = analysis_result.get('teaching_insights', {})
-        
-        # 构建知识点信息
-        kp_info = []
-        for kp in related_kps:
-            kp_summary = {
-                'id': kp.get('id', ''),
-                'concept_name': kp.get('concept_name', ''),
-                'concept_type': kp.get('concept_type', ''),
-                'importance_level': kp.get('importance_level', ''),
-                'time_range': kp.get('time_range', ''),
-                'core_definition': kp.get('core_definition', {}),
-                'detailed_content': kp.get('detailed_content', {}),
-                'exam_relevance': kp.get('exam_relevance', {}),
-                'relationships': kp.get('relationships', {})
-            }
-            kp_info.append(kp_summary)
-        
-        return self.SEGMENT_PROMPT_TEMPLATE.format(
-            segment_text=segment.text,
-            time_range=f"{segment.time_range.start:.1f}-{segment.time_range.end:.1f}s",
-            knowledge_points=json.dumps(kp_info, ensure_ascii=False, indent=2),
-            course_overview=json.dumps(course_overview, ensure_ascii=False),
-            teaching_insights=json.dumps(teaching_insights, ensure_ascii=False),
-            subject=metadata['subject'],
-            source=metadata['source'],
-            course_url=metadata.get('course_url', '')
-        )
-    
+          
     def _generate_notes_traditional(self, analysis_result: Dict, subtitle_content: str, 
                                   metadata: Dict[str, str]) -> List[Dict[str, Any]]:
-        """传统方式生成笔记（使用完整字幕内容）"""
-        prompt = self.STEP2_PROMPT_TEMPLATE.format(
+        """修改传统方式，也替换模板占位符"""
+        
+        knowledge_points = analysis_result.get('knowledge_points', [])
+        
+        # 🔥 为所有知识点生成模板章节结构
+        template_sections_replacement = ""
+        for kp in knowledge_points:
+            concept_name = kp.get('concept_name', '未命名概念')
+            concept_type = kp.get('concept_type', '定义性概念')
+            importance_level = kp.get('importance_level', '中')
+            
+            # 生成模板章节
+            kp_template_sections = self.generate_template_sections_by_concept_type(concept_type, importance_level)
+            
+            template_sections_replacement += f"""
+**针对概念：{concept_name}（类型：{concept_type}，重要性：{importance_level}）**
+
+{kp_template_sections}
+
+---
+"""
+        
+        # 🔥 使用现有的提示词模板，但替换占位符
+        original_prompt = self.STEP2_PROMPT_TEMPLATE.format(
             analysis_result=json.dumps(analysis_result, ensure_ascii=False),
             subtitle_content=subtitle_content,
             subject=metadata['subject'],
@@ -342,16 +212,31 @@ class AIProcessor:
             course_url=metadata.get('course_url', '')
         )
         
+        # 🔥 替换模板占位符（查找并替换可能的占位符）
+        enhanced_prompt = original_prompt
+        
+        # 替换可能存在的模板占位符
+        placeholders_to_replace = [
+            "[智能选择的其他章节]",
+            "[智能创造的章节标题]",
+            "[基于detailed_content和concept_type的具体内容]"
+        ]
+        
+        for placeholder in placeholders_to_replace:
+            if placeholder in enhanced_prompt:
+                enhanced_prompt = enhanced_prompt.replace(placeholder, template_sections_replacement)
+                print(f"✅ 替换了占位符: {placeholder}")
+        
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "user", "content": enhanced_prompt}],
                 temperature=0,
             )
             
             return self._parse_ai_response(response.choices[0].message.content)
         except Exception as e:
-            print(f"❌ 传统方式笔记生成失败: {e}")
+            print(f"❌ 模板增强的传统方式笔记生成失败: {e}")
             return []
 
     # 旧版兼容方法（单步处理）
@@ -362,105 +247,6 @@ class AIProcessor:
         if not analysis:
             return []
         return self.generate_notes_step2(analysis, subtitle_content, metadata)
-    
-    # 新增：分段处理的提示词模板
-    SEGMENT_PROMPT_TEMPLATE = """\
-你是专业的法考笔记整理专家。请根据第一步分析结果和对应的字幕片段，生成完整的Obsidian笔记。
-
-## 输入内容
-
-**字幕片段**（时间范围: {time_range}）：
-{segment_text}
-
-**相关知识点分析**：
-{knowledge_points}
-
-**课程概览**：
-{course_overview}
-
-**教学风格洞察**：
-{teaching_insights}
-
-**课程信息**：
-- 科目：{subject}
-- 来源：{source}
-- 课程链接：{course_url}
-
-## 处理要求
-
-**精确对应**：严格基于提供的知识点分析结果，为每个knowledge_point生成对应笔记
-
-**充分利用片段内容**：深度挖掘字幕片段中的信息，保留老师的原始表述和重要细节
-
-**时间戳处理**：使用time_range信息添加准确的时间戳标记，格式为[MM:SS.mm]
-
-**概念关联**：基于relationships信息建立准确的双链关系
-
-## 笔记生成规则
-
-**YAML元数据标准**：
-```yaml
-title: "【{subject}】{{concept_name}}"
-aliases: ["{{concept_name}}", "其他别名"]
-tags: ["{subject}", "根据concept_type确定", "根据importance_level确定"]
-source: "{source}"
-course_url: "{course_url}"
-time_range: "{{time_range}}"
-subject: "{subject}"
-exam_importance: "{{importance_level}}"
-concept_id: "{{id}}"
-created: "当前时间"
-```
-
-**章节结构智能设计**：根据concept_type智能选择章节结构
-- 定义性概念：核心定义 + 关键要素 + 典型案例
-- 构成要件：要件概述 + 要件详解 + 举证责任
-- 程序性知识：程序概述 + 操作步骤 + 注意事项
-- 判断标准：标准概述 + 判断要素 + 适用情形
-- 法条规定：条文内容 + 立法背景 + 适用情形
-- 实务经验：经验概述 + 操作要点 + 实用技巧
-
-**内容填充策略**：
-- 核心定义：优先使用teacher_original，补充context信息
-- 详细展开：基于detailed_content的main_explanation和examples
-- 记忆要点：结合memory_tips、key_keywords、common_mistakes
-- 相关概念：根据relationships建立双链
-
-**输出格式**：
-```
-=== NOTE_SEPARATOR ===
-YAML:
----
-[YAML元数据]
----
-CONTENT:
-# 【{subject}】{{concept_name}}
-
-## 核心定义
-
-⏰ [时间戳]
-[基于teacher_original和字幕片段的定义]
-
-[智能选择的其他章节]
-
-## 记忆要点
-
-🔮 [关键记忆点] — [简洁解释]
-📱 [应用场景] — [典型情况]  
-💡 [重要提醒] — [易错提示]
-
-## 相关概念
-
-[基于relationships的双链列表]
-
----
-*视频时间段：{time_range}*
-
-=== NOTE_SEPARATOR ===
-```
-
-请严格按照上述要求，为提供的每个知识点生成对应的完整笔记。直接输出笔记内容，不需要额外说明。
-"""
     
     # 第一步提示词模板
     STEP1_PROMPT_TEMPLATE = """\
@@ -802,14 +588,92 @@ created: "{{当前时间}}"
 请严格按照上述要求，为提供的知识点生成对应的完整笔记。直接输出笔记内容，不需要额外说明。不要使用任何分隔符，直接输出一个完整的markdown笔记。
 """
 
+    def generate_template_sections_by_concept_type(self, concept_type: str, importance_level: str = "中") -> str:
+        """
+        🔥 核心函数：根据concept_type生成模板章节内容
+        用于替换提示词中的 [智能选择的其他章节] 占位符
+        
+        Args:
+            concept_type: 概念类型
+            importance_level: 重要性级别
+            
+        Returns:
+            生成的章节内容字符串
+        """
+        if not self.template_utils:
+            # 如果模板系统不可用，返回默认章节
+            return """
+## 详细说明
+[根据概念特点展开的具体内容]
+
+## 实际应用
+[概念的实际应用场景和案例]
+"""
+        
+        try:
+            # 🔥 使用模板系统选择合适的模板
+            template_result = self.template_utils.select_template_for_concept(
+                concept_types=concept_type,
+                importance_level=importance_level
+            )
+            
+            print(f"📋 为概念类型 '{concept_type}' 选择模板: {template_result.primary_template.type_name}")
+            
+            # 🔥 生成章节内容（排除核心定义和记忆要点，因为它们已经在模板中了）
+            sections_content = []
+            
+            for section in template_result.merged_sections:
+                # 跳过已经在提示词模板中的固定章节
+                if section.title in ["核心定义", "记忆要点", "相关概念"]:
+                    continue
+                
+                section_content = f"""## {section.title}
+
+⏰ [时间戳]
+{section.description}
+[提取要求：{section.extraction_prompt}]
+"""
+                sections_content.append(section_content)
+            
+            if sections_content:
+                result = "\n".join(sections_content)
+                print(f"✅ 生成了 {len(sections_content)} 个模板章节")
+                return result
+            else:
+                # 如果没有额外章节，返回通用章节
+                return """
+## 详细说明
+
+⏰ [时间戳]
+[根据concept_type和字幕内容的详细说明]
+"""
+            
+        except Exception as e:
+            print(f"❌ 模板章节生成失败: {e}")
+            return """
+## 详细说明
+
+⏰ [时间戳]
+[根据概念特点展开的具体内容]
+"""
+
     def _build_single_knowledge_point_prompt(self, segment: Segment, knowledge_point: Dict, 
                                        analysis_result: Dict, metadata: Dict[str, str]) -> str:
-        """构建单个知识点的处理提示词（不使用分隔符）"""
-        # 提取课程概览和教学洞察
+        """修改现有函数，正确替换模板占位符"""
+        
+        # 获取概念信息
+        concept_type = knowledge_point.get('concept_type', '定义性概念')
+        importance_level = knowledge_point.get('importance_level', '中')
+        
+        # 🔥 生成模板章节内容
+        template_sections = self.generate_template_sections_by_concept_type(concept_type, importance_level)
+        
+        # 现有的提示词构建逻辑...
         course_overview = analysis_result.get('course_overview', {})
         teaching_insights = analysis_result.get('teaching_insights', {})
         
-        return self.SINGLE_KNOWLEDGE_POINT_PROMPT_TEMPLATE.format(
+        # 🔥 使用现有的提示词模板，但替换占位符
+        original_prompt = self.SINGLE_KNOWLEDGE_POINT_PROMPT_TEMPLATE.format(
             segment_text=segment.text,
             time_range=f"{segment.time_range.start:.1f}-{segment.time_range.end:.1f}s",
             knowledge_point=json.dumps(knowledge_point, ensure_ascii=False, indent=2),
@@ -819,6 +683,11 @@ created: "{{当前时间}}"
             source=metadata['source'],
             course_url=metadata.get('course_url', '')
         )
+        
+        # 🔥 替换模板占位符
+        enhanced_prompt = original_prompt.replace("[智能选择的其他章节]", template_sections)
+        
+        return enhanced_prompt
 
     def _parse_single_note_response(self, response_content: str, knowledge_point: Dict, metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
         """解析单个笔记的AI响应 - 正确处理多个---的版本"""
