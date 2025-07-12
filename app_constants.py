@@ -127,7 +127,7 @@ course_url: "https://www.bilibili.com/video/BV1xxx"
 time_range: "00:00-05:30"
 subject: "民法"
 exam_importance: "高"
-created: "{{date:YYYY-MM-DD}}"
+created: "{{date:YYYY-MM-DDTHH:mm:ssZ+08:00}}"
 ---
 
 CONTENT:

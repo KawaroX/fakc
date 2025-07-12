@@ -209,7 +209,8 @@ class AIProcessor:
             subtitle_content=subtitle_content,
             subject=metadata['subject'],
             source=metadata['source'],
-            course_url=metadata.get('course_url', '')
+            course_url=metadata.get('course_url', ''),
+            datetime=datetime.datetime.now().astimezone().isoformat(),
         )
         
         # 🔥 替换模板占位符（查找并替换可能的占位符）
@@ -450,7 +451,7 @@ time_range: "{{time_range}}"
 subject: "{subject}"
 exam_importance: "{{importance_level}}"
 concept_id: "{{id}}"
-created: "当前时间"
+created: {datetime}
 ```
 
 **双链格式**：
@@ -556,7 +557,7 @@ time_range: "{{time_range}}"
 subject: "{subject}"
 exam_importance: "{{importance_level}}"
 concept_id: "{{id}}"
-created: "{{当前时间}}"
+created: "{current_time}"
 ---
 # 【{subject}】{{concept_name}}
 
@@ -673,6 +674,7 @@ created: "{{当前时间}}"
         teaching_insights = analysis_result.get('teaching_insights', {})
         
         # 🔥 使用现有的提示词模板，但替换占位符
+        current_time = datetime.datetime.now().astimezone().isoformat()
         original_prompt = self.SINGLE_KNOWLEDGE_POINT_PROMPT_TEMPLATE.format(
             segment_text=segment.text,
             time_range=f"{segment.time_range.start:.1f}-{segment.time_range.end:.1f}s",
@@ -681,7 +683,8 @@ created: "{{当前时间}}"
             teaching_insights=json.dumps(teaching_insights, ensure_ascii=False),
             subject=metadata['subject'],
             source=metadata['source'],
-            course_url=metadata.get('course_url', '')
+            course_url=metadata.get('course_url', ''),
+            current_time=current_time  # 新增当前时间参数
         )
         
         # 🔥 替换模板占位符
@@ -746,7 +749,7 @@ created: "{{当前时间}}"
                     'source': metadata['source'],
                     'subject': metadata['subject'],
                     'concept_id': knowledge_point.get('id', ''),
-                    'created': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    'created': datetime.datetime.now().astimezone().isoformat()
                 }
                 if metadata.get('course_url'):
                     yaml_data['course_url'] = metadata['course_url']
@@ -1005,7 +1008,7 @@ course_url: "{metadata.get('course_url', '')}"
 time_range: "开始时间-结束时间"
 subject: "{metadata['subject']}"
 exam_importance: "高/中/低"
-created: "{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+created: "{datetime.datetime.now().astimezone().isoformat()}"
 ---
 
 CONTENT:
@@ -1456,6 +1459,398 @@ MODIFIED: false
         # 这里可以根据实际情况实现更复杂的逻辑
         # 比如记录开始时间，计算已用次数等
         return 20  # 保守估计
+    
+    # 第一步AI修改的提示词模板
+    STEP1_MODIFICATION_PROMPT_TEMPLATE = """
+你是专业的法考内容分析专家。请根据用户的建议重新分析字幕内容并优化知识点结构。
+
+原始字幕内容：
+{subtitle_content}
+
+当前分析结果：
+{current_analysis}
+
+用户修改建议：
+{user_suggestion}
+
+请基于用户建议重新分析，输出标准的JSON格式结果，包含：
+1. course_info（课程基本信息）
+2. knowledge_points（知识点列表）
+3. concept_relationships（概念关系）
+
+重点关注用户提出的建议，确保：
+- 知识点的划分更加合理
+- 时间范围标注准确
+- 概念类型识别正确
+- 重要性评级恰当
+
+
+"""
+# ####### 可能要删除
+#     STEP2_MODIFICATION_PROMPT_TEMPLATE = """
+# 你是专业的法考笔记优化专家。请根据用户建议修改指定的笔记内容。
+
+# 原始笔记：
+# {original_note}
+
+# 相关字幕片段：
+# {relevant_subtitle}
+
+# 知识点信息：
+# {knowledge_point_info}
+
+# 用户修改建议：
+# {user_suggestion}
+
+# 修改要求：
+# - 保持Obsidian格式完整性
+# - 保留YAML frontmatter结构
+# - 根据用户的建议修改笔记
+# - 尽可能满足用户的要求
+# - 优化概念关联和例子说明
+# - 维持法考笔记的专业性
+
+# 输出格式要求：
+# 请严格按照以下格式输出修改后的笔记，包含完整的YAML frontmatter：
+
+# ---
+# title: "笔记标题"
+# aliases: ["别名1", "别名2"]
+# tags: ["标签1", "标签2"]
+# source: "来源"
+# course_url: "URL"
+# time_range: "时间范围"
+# subject: "科目"
+# exam_importance: "重要性"
+# concept_id: "概念ID"
+# created: "创建时间"
+# ---
+
+# # 笔记标题
+
+# ## 核心定义
+# [修改后的内容...]
+
+# ## 其他章节
+# [修改后的内容...]
+
+# 请输出修改后的完整笔记内容。
+# """
+
+    def modify_step1_analysis(self, current_analysis: dict, subtitle_content: str, 
+                             user_suggestion: str) -> dict:
+        """
+        基于用户建议修改第一步分析结果
+        
+        Args:
+            current_analysis: 当前分析结果
+            subtitle_content: 原始字幕内容
+            user_suggestion: 用户修改建议
+            
+        Returns:
+            修改后的分析结果
+        """
+        prompt = self.STEP1_MODIFICATION_PROMPT_TEMPLATE.format(
+            subtitle_content=subtitle_content,
+            current_analysis=json.dumps(current_analysis, ensure_ascii=False, indent=2),
+            user_suggestion=user_suggestion
+        )
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.3
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            modified_result = json.loads(response_text)
+            
+            print("✅ 第一步AI修改完成")
+            return modified_result
+        
+        except Exception as e:
+            print(f"❌ 第一步AI修改失败: {e}")
+            return None
+
+    def modify_single_note(self, note_data: dict, subtitle_content: str,
+                      knowledge_point: dict, user_suggestion: str) -> dict:
+        """
+        基于用户建议修改单篇笔记
+        
+        Args:
+            note_data: 笔记数据 {'yaml': dict, 'content': str}
+            subtitle_content: 原始字幕内容
+            knowledge_point: 对应的知识点信息
+            user_suggestion: 用户修改建议
+            
+        Returns:
+            修改后的笔记数据
+        """
+        try:
+            # 1. 正确提取相关字幕片段（基于时间范围）
+            relevant_subtitle = self._extract_subtitle_segment_for_modification(
+                subtitle_content, knowledge_point
+            )
+            
+            print(f"🔍 提取字幕片段长度: {len(relevant_subtitle)} 字符")
+            print(f"📝 知识点时间范围: {knowledge_point.get('time_range', '未知')}")
+            
+            # 2. 组合原始笔记内容
+            yaml_content = yaml.dump(note_data.get('yaml', {}), allow_unicode=True)
+            original_note = f"---\n{yaml_content}---\n\n{note_data.get('content', '')}"
+            
+            # 3. 构建修改提示词
+            prompt = self._build_note_modification_prompt(
+                original_note, relevant_subtitle, knowledge_point, user_suggestion
+            )
+            
+            print(f"🔍 开始AI修改笔记...")
+            print(f"📝 提示词长度: {len(prompt)} 字符")
+            
+            # 4. 调用AI
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            
+            print(f"📥 AI响应长度: {len(response_text)} 字符")
+            print(f"📄 AI响应前500字符:")
+            print("-" * 50)
+            print(response_text[:500])
+            print("-" * 50)
+            
+            # 5. 使用正确的解析方法（标准frontmatter格式）
+            modified_note = self._parse_single_note_response(response_text, knowledge_point, {
+                'subject': note_data.get('yaml', {}).get('subject', ''),
+                'source': note_data.get('yaml', {}).get('source', ''),
+                'course_url': note_data.get('yaml', {}).get('course_url', '')
+            })
+            
+            if modified_note:
+                print("✅ 笔记AI修改完成")
+                print(f"📊 解析结果包含: {list(modified_note.keys())}")
+                if 'yaml' in modified_note:
+                    yaml_title = modified_note['yaml'].get('title', 'Unknown')
+                    print(f"📝 笔记标题: {yaml_title}")
+                    print(f"⏰ 时间范围: {modified_note['yaml'].get('time_range', 'Unknown')}")
+                return modified_note
+            else:
+                print("❌ 修改后的笔记解析失败")
+                return None
+        
+        except Exception as e:
+            print(f"❌ 笔记AI修改失败: {e}")
+            import traceback
+            print("📋 详细错误信息:")
+            traceback.print_exc()
+            return None
+
+    def _extract_subtitle_segment_for_modification(self, subtitle_content: str, knowledge_point: dict) -> str:
+        """
+        基于知识点的时间范围提取对应的字幕片段
+        """
+        time_range = knowledge_point.get('time_range', '')
+        
+        if not time_range or time_range == '未知':
+            print("⚠️ 没有有效的时间范围，使用前2000字符")
+            return subtitle_content[:2000]
+        
+        try:
+            # 如果有智能分段器，使用其解析时间的方法
+            if hasattr(self, 'segmenter') and self.segmenter:
+                # 解析时间范围
+                start_time, end_time = self._parse_time_range(time_range)
+                
+                if start_time is not None and end_time is not None:
+                    # 添加缓冲区（前后30秒）
+                    buffer_seconds = 30
+                    buffered_start = max(0, start_time - buffer_seconds)
+                    buffered_end = end_time + buffer_seconds
+                    
+                    print(f"📊 时间范围: {start_time}s-{end_time}s, 缓冲后: {buffered_start}s-{buffered_end}s")
+                    
+                    # 提取对应的字幕片段
+                    extracted_segment = self._extract_subtitle_by_time(
+                        subtitle_content, buffered_start, buffered_end
+                    )
+                    
+                    if extracted_segment.strip():
+                        print(f"✅ 成功提取字幕片段: {len(extracted_segment)} 字符")
+                        return extracted_segment
+                    else:
+                        print("⚠️ 提取的字幕片段为空")
+            
+            # 如果智能分段方法失败，降级到简单提取
+            print("⚠️ 智能提取失败，使用前2000字符")
+            return subtitle_content[:2000]
+            
+        except Exception as e:
+            print(f"⚠️ 字幕片段提取失败: {e}")
+            return subtitle_content[:2000]
+
+    def _parse_time_range(self, time_range: str) -> tuple:
+        """
+        解析时间范围字符串，返回开始和结束时间（秒）
+        """
+        try:
+            # 处理格式如: "02:15.30-05:45.60" 或 "135.5-345.8"
+            if '-' in time_range:
+                start_str, end_str = time_range.split('-')
+                start_time = self._parse_time_to_seconds(start_str.strip())
+                end_time = self._parse_time_to_seconds(end_str.strip())
+                return start_time, end_time
+            else:
+                print(f"⚠️ 无法解析时间范围格式: {time_range}")
+                return None, None
+        except Exception as e:
+            print(f"⚠️ 时间范围解析失败: {e}")
+            return None, None
+
+    def _parse_time_to_seconds(self, time_str: str) -> float:
+        """
+        将时间字符串转换为秒数
+        """
+        try:
+            # 如果已经是秒数格式
+            if '.' in time_str and ':' not in time_str:
+                return float(time_str)
+            
+            # 处理 MM:SS.mm 格式
+            if ':' in time_str:
+                parts = time_str.split(':')
+                if len(parts) == 2:
+                    # MM:SS.mm
+                    minutes = int(parts[0])
+                    seconds_parts = parts[1].split('.')
+                    seconds = int(seconds_parts[0])
+                    milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+                    return minutes * 60 + seconds + milliseconds / 100.0
+                elif len(parts) == 3:
+                    # HH:MM:SS.mm
+                    hours = int(parts[0])
+                    minutes = int(parts[1])
+                    seconds_parts = parts[2].split('.')
+                    seconds = int(seconds_parts[0])
+                    milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+                    return hours * 3600 + minutes * 60 + seconds + milliseconds / 100.0
+            
+            # 如果都不匹配，尝试直接转换
+            return float(time_str)
+            
+        except Exception as e:
+            print(f"⚠️ 时间字符串解析失败: {time_str}, 错误: {e}")
+            return 0.0
+
+    def _extract_subtitle_by_time(self, subtitle_content: str, start_time: float, end_time: float) -> str:
+        """
+        根据时间范围提取字幕内容
+        """
+        try:
+            lines = subtitle_content.split('\n')
+            extracted_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 检查LRC格式 [MM:SS.mm]
+                lrc_match = re.match(r'\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.+)', line)
+                if lrc_match:
+                    minutes = int(lrc_match.group(1))
+                    seconds = int(lrc_match.group(2))
+                    milliseconds = int(lrc_match.group(3) or 0)
+                    line_time = minutes * 60 + seconds + milliseconds / 100.0
+                    
+                    if start_time <= line_time <= end_time:
+                        extracted_lines.append(line)
+                    continue
+                
+                # 检查SRT格式 (简化处理)
+                if '-->' in line:
+                    continue
+                
+                # 如果不是时间戳行，可能是内容行
+                if extracted_lines:  # 如果已经开始提取，继续添加
+                    extracted_lines.append(line)
+            
+            result = '\n'.join(extracted_lines)
+            
+            # 如果提取的内容太少，返回更大范围的内容
+            if len(result) < 200:
+                # 尝试提取更大范围
+                expanded_start = max(0, start_time - 60)
+                expanded_end = end_time + 60
+                
+                expanded_lines = []
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    lrc_match = re.match(r'\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.+)', line)
+                    if lrc_match:
+                        minutes = int(lrc_match.group(1))
+                        seconds = int(lrc_match.group(2))
+                        milliseconds = int(lrc_match.group(3) or 0)
+                        line_time = minutes * 60 + seconds + milliseconds / 100.0
+                        
+                        if expanded_start <= line_time <= expanded_end:
+                            expanded_lines.append(line)
+                
+                expanded_result = '\n'.join(expanded_lines)
+                if len(expanded_result) > len(result):
+                    print(f"📈 扩展时间范围提取: {len(expanded_result)} 字符")
+                    return expanded_result
+            
+            return result
+            
+        except Exception as e:
+            print(f"⚠️ 按时间提取字幕失败: {e}")
+            return subtitle_content[:2000]
+
+    def _build_note_modification_prompt(self, original_note: str, relevant_subtitle: str, 
+                                    knowledge_point: dict, user_suggestion: str) -> str:
+        """
+        构建笔记修改的提示词
+        """
+        return f"""你是专业的法考笔记优化专家。请根据用户建议修改指定的笔记内容。
+
+原始笔记：
+{original_note}
+
+相关字幕片段：
+{relevant_subtitle}
+
+知识点信息：
+- 概念名称: {knowledge_point.get('concept_name', '未知')}
+- 概念类型: {knowledge_point.get('concept_type', '未知')}
+- 重要性级别: {knowledge_point.get('importance_level', '未知')}
+- 时间范围: {knowledge_point.get('time_range', '未知')}
+
+用户修改建议：
+{user_suggestion}
+
+修改要求：
+1. 保持Obsidian格式完整性，严格使用标准frontmatter格式
+2. 保留YAML frontmatter结构，包括所有必要字段
+3. 根据建议调整内容详略程度
+4. 充分利用相关字幕片段中的信息
+5. 保持时间戳格式为[MM:SS.mm]，确保时间信息准确
+6. 维持法考笔记的专业性
+
+输出格式要求：
+请严格按照标准Obsidian frontmatter格式输出，确保：
+- YAML部分在 --- 之间
+- 时间戳使用正确的格式
+- 保持笔记的完整结构
+
+直接输出修改后的完整笔记内容，不要添加任何解释。"""
 
 def debug_note_structure(note: Dict[str, Any], note_index: int = 0):
     """调试输出笔记结构"""

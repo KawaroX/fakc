@@ -301,7 +301,7 @@ course_url: "https://www.bilibili.com/video/BV1xxx"
 time_range: "12:30-15:45"
 subject: "民法"
 exam_importance: "高"
-created: "2024-01-15"
+created: "2025-09-01T12:30:15+08:00"
 ---
 
 # 【民法】善意取得

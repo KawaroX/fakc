@@ -46,7 +46,8 @@ from ui_components import (
     render_token_comparison_chart, render_complete_segmentation_interface, 
     render_concurrent_processing_status, render_concurrent_settings, 
     render_concurrent_strategy_info, render_processing_progress_live,
-    update_processing_progress, render_concurrent_results_summary
+    update_processing_progress, render_concurrent_results_summary,
+    render_note_version_comparison, render_single_note_interaction
 )
 from app_constants import AppConstants, UIConfig, ModelConfig
 
@@ -1143,6 +1144,118 @@ class StreamlitLawExamNoteProcessor:
         step2_processor.set_concurrent_config(concurrent_config)
         
         return concurrent_config
+    
+    def process_step2_generation_with_data(self, analysis_result: dict, subtitle_content: str, 
+                                         metadata: dict, step2_config: dict, 
+                                         segmentation_settings: dict = None) -> List[Dict]:
+        """
+        执行第二步生成并返回笔记数据（不保存文件）
+        
+        Args:
+            analysis_result: 第一步分析结果
+            subtitle_content: 原始字幕内容
+            metadata: 元数据
+            step2_config: 第二步AI配置
+            segmentation_settings: 智能分段设置
+            
+        Returns:
+            笔记数据列表，每个元素包含 {'yaml': dict, 'content': str}
+        """
+        try:
+            # 1. 创建第二步AI处理器
+            step2_processor = self.create_ai_processor_from_config(step2_config)
+            
+            # 2. 配置并发处理
+            knowledge_points = analysis_result.get('knowledge_points', [])
+            num_knowledge_points = len(knowledge_points)
+            
+            if num_knowledge_points > 0:
+                concurrent_config = self._configure_concurrent_processing(step2_processor, num_knowledge_points)
+                st.info(f"📊 配置并发处理: {num_knowledge_points}个知识点，最大并发数: {concurrent_config.max_concurrent}")
+            
+            # 3. 扫描现有概念库
+            st.write("🔍 扫描现有概念库...")
+            self.concept_manager.scan_existing_notes()
+            
+            # 4. 使用第二步生成方法
+            use_segmentation = segmentation_settings.get('use_segmentation', True) if segmentation_settings else True
+            
+            with st.spinner("🤖 AI正在生成笔记..."):
+                all_notes = step2_processor.generate_notes_step2(
+                    analysis_result, subtitle_content, metadata, use_segmentation
+                )
+            
+            if not all_notes:
+                st.error("❌ 笔记生成失败")
+                return []
+            
+            st.success(f"✅ 生成了 {len(all_notes)} 个笔记")
+            
+            # 5. 概念关系增强
+            existing_concepts = self.concept_manager.get_all_concepts_for_ai()
+            st.write("🔗 AI正在优化概念关系...")
+            enhanced_notes = step2_processor.enhance_concept_relationships(all_notes, existing_concepts)
+            
+            return enhanced_notes
+            
+        except Exception as e:
+            st.error(f"❌ 第二步数据生成失败: {e}")
+            return []
+
+    def save_finalized_notes(self, notes_data: List[Dict], version_data: dict, 
+                           metadata: dict) -> List[str]:
+        """
+        保存最终确定的笔记
+        
+        Args:
+            notes_data: 笔记数据列表
+            version_data: 版本选择数据 {note_index: {'current': note, 'modified': note, 'selected': 'current'|'modified'}}
+            metadata: 元数据
+            
+        Returns:
+            保存的文件路径列表
+        """
+        created_files = []
+        
+        try:
+            # 确定输出路径
+            output_path = Config.get_output_path(metadata['subject'])
+            os.makedirs(output_path, exist_ok=True)
+            
+            st.write(f"📝 保存笔记文件到: {output_path}")
+            
+            for i, note in enumerate(notes_data):
+                # 检查是否有版本选择
+                final_note = note  # 默认使用原版本
+                
+                if i in version_data:
+                    version_info = version_data[i]
+                    if 'selected' in version_info:
+                        # 使用选择的版本
+                        final_note = version_info[version_info['selected']]
+                
+                # 保存笔记文件
+                file_path = self.note_generator.create_note_file(final_note, output_path)
+                if file_path:
+                    created_files.append(file_path)
+            
+            # 更新概念数据库
+            if created_files:
+                # 将笔记数据转换为适合数据库的格式
+                db_notes = []
+                for i, note in enumerate(notes_data):
+                    final_note = note
+                    if i in version_data and 'selected' in version_data[i]:
+                        final_note = version_data[i][version_data[i]['selected']]
+                    db_notes.append(final_note)
+                
+                self.concept_manager.update_database(db_notes)
+            
+            return created_files
+            
+        except Exception as e:
+            st.error(f"❌ 保存笔记失败: {e}")
+            return []
 
 # 模型配置缓存文件路径
 MODEL_CONFIG_CACHE_PATH = os.path.join(os.path.dirname(__file__), '.model_configs_cache.json')
@@ -1219,8 +1332,22 @@ if 'two_step_state' not in st.session_state:
         'metadata': None,
         'step1_config': None,
         'step2_config': None,
-        'segmentation_settings': None  # 新增：分段设置
+        'segmentation_settings': None,  # 新增：分段设置
+
+        'step2_notes': None,  # 第二步生成的笔记数据
+        'note_versions': {},  # 确保这个键存在
+        'selected_note_index': None,  # 当前选中的笔记索引
     }
+
+# 添加向后兼容性检查，确保现有session也有这些键
+if 'note_versions' not in st.session_state.two_step_state:
+    st.session_state.two_step_state['note_versions'] = {}
+
+if 'step2_notes' not in st.session_state.two_step_state:
+    st.session_state.two_step_state['step2_notes'] = None
+
+if 'selected_note_index' not in st.session_state.two_step_state:
+    st.session_state.two_step_state['selected_note_index'] = None
 
 # 检查并处理缺失的环境变量
 missing_env_vars = Config.check_and_get_missing_env()
@@ -1415,112 +1542,233 @@ else:
                     render_warning_box(AppConstants.ERROR_MESSAGES["no_file"])
         
         elif two_step_state['step'] == 1:
-            # 第一步完成：显示结果查看和编辑
+            # 第一步完成：显示交互界面
             render_two_step_progress(1, True, False)
             
-            # 检查是否进入编辑模式
-            if 'edit_mode' not in st.session_state:
-                st.session_state.edit_mode = False
+            # 使用标签页组织交互功能
+            tab1, tab2, tab3, tab4 = st.tabs(["📋 查看结果", "✏️ 编辑", "🔄 重新运行", "💡 AI修改"])
             
-            if not st.session_state.edit_mode:
-                # 显示第一步结果
+            with tab1:
+                # 查看第一步结果
                 viewer_result = render_step1_result_viewer(two_step_state['analysis_result'])
-
-                if viewer_result['action'] == 'none':  # 用户还在查看结果，显示设置
-                    st.subheader("🚀 第二步处理配置")
-                    
-                    # 分析知识点数量
-                    knowledge_points = two_step_state['analysis_result'].get('knowledge_points', [])
-                    num_knowledge_points = len(knowledge_points)
-                    
-                    # 显示并发策略信息
-                    render_concurrent_strategy_info(num_knowledge_points)
-                    
-                    # 显示并发处理设置
-                    concurrent_settings = render_concurrent_settings()
-                    
-                    # 保存设置到session state
-                    st.session_state.concurrent_settings = concurrent_settings
                 
                 if viewer_result['action'] == 'continue':
-                    # 继续第二步（集成智能分段）
+                    # 继续第二步
                     with st.spinner("📝 正在进行第二步笔记生成..."):
-                        
-                        # 如果启用了智能分段，显示处理状态
                         segmentation_settings = two_step_state.get('segmentation_settings', {})
                         if SEGMENTATION_AVAILABLE and segmentation_settings.get('use_segmentation', True):
                             render_segmentation_status('processing', '正在执行智能分段...', 0.1)
                         
-                        created_files = processor.process_step2_generation(
+                        notes_data = processor.process_step2_generation_with_data(
                             two_step_state['analysis_result'],
                             two_step_state['subtitle_content'],
                             two_step_state['metadata'],
                             two_step_state['step2_config'],
-                            two_step_state.get('segmentation_settings', {})  # 传递分段设置
+                            two_step_state.get('segmentation_settings', {})
                         )
                     
-                    if created_files:
+                    if notes_data:
                         st.session_state.two_step_state['step'] = 2
-                        render_success_box("🎉 两步走处理全部完成！")
-                        st.balloons()
+                        st.session_state.two_step_state['step2_notes'] = notes_data
+                        render_success_box("✅ 第二步笔记生成完成！")
+                        st.rerun()
                     else:
                         render_error_box("第二步笔记生成失败")
-                
-                elif viewer_result['action'] == 'edit':
-                    # 进入编辑模式
-                    st.session_state.edit_mode = True
-                    st.rerun()
                 
                 elif viewer_result['action'] == 'retry':
                     # 重新执行第一步
                     st.session_state.two_step_state['step'] = 0
                     st.rerun()
             
-            else:
-                # 编辑模式
+            with tab2:
+                # 编辑第一步结果
+                st.subheader("✏️ 编辑分析结果")
                 editor_result = render_step1_result_editor(two_step_state['analysis_result'])
                 
                 if editor_result['action'] == 'save':
-                    # 保存编辑结果
                     st.session_state.two_step_state['analysis_result'] = editor_result['result']
-                    st.session_state.edit_mode = False
                     render_success_box("✅ 修改已保存")
                     st.rerun()
+            
+            with tab3:
+                # 重新运行第一步
+                st.subheader("🔄 重新运行第一步")
+                st.info("重新运行将完全重新分析字幕内容，替换当前结果。")
                 
-                elif editor_result['action'] == 'cancel':
-                    # 取消编辑
-                    st.session_state.edit_mode = False
-                    st.rerun()
+                if st.button("🔄 确认重新运行", type="primary", use_container_width=True):
+                    with st.spinner("🔍 正在重新进行第一步分析..."):
+                        step1_processor = processor.create_ai_processor_from_config(two_step_state['step1_config'])
+                        analysis_result = step1_processor.extract_knowledge_points_step1(
+                            two_step_state['subtitle_content'], 
+                            two_step_state['metadata']
+                        )
+                    
+                    if analysis_result:
+                        st.session_state.two_step_state['analysis_result'] = analysis_result
+                        render_success_box("✅ 第一步重新运行完成！")
+                        st.rerun()
+                    else:
+                        render_error_box("重新运行失败，请检查模型配置")
+            
+            with tab4:
+                # AI修改第一步结果
+                st.subheader("💡 AI修改分析结果")
+                
+                user_suggestion = st.text_area(
+                    "请描述你希望如何修改分析结果：",
+                    placeholder="例如：增加某个概念的重要性、调整知识点的时间范围、重新划分章节结构...",
+                    height=100,
+                    key="step1_ai_suggestion"
+                )
+                
+                if st.button("🤖 AI修改", type="primary", use_container_width=True, key="step1_ai_modify"):
+                    if user_suggestion.strip():
+                        with st.spinner("🤖 AI正在根据你的建议修改分析结果..."):
+                            step1_processor = processor.create_ai_processor_from_config(two_step_state['step1_config'])
+                            modified_result = step1_processor.modify_step1_analysis(
+                                two_step_state['analysis_result'],
+                                two_step_state['subtitle_content'],
+                                user_suggestion
+                            )
+                        
+                        if modified_result:
+                            st.session_state.two_step_state['analysis_result'] = modified_result
+                            render_success_box("✅ AI修改完成！")
+                            st.rerun()
+                        else:
+                            render_error_box("AI修改失败，请重试或调整建议内容")
+                    else:
+                        st.warning("请先输入修改建议")
         
         elif two_step_state['step'] == 2:
-            # 两步都完成
-            render_two_step_progress(2, True, True)
-            render_success_box("🎉 两步走处理全部完成！")
+            # 第二步完成：显示笔记交互界面
+            render_two_step_progress(2, True, False)
             
-            # 显示智能分段统计（如果使用了）
-            segmentation_settings = two_step_state.get('segmentation_settings', {})
-            if SEGMENTATION_AVAILABLE and segmentation_settings.get('use_segmentation', False):
-                st.subheader("📊 智能分段效果")
+            # 检查笔记数据是否存在
+            if not two_step_state.get('step2_notes'):
+                render_error_box("笔记数据丢失，请重新处理")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 返回第一步", use_container_width=True):
+                        st.session_state.two_step_state['step'] = 1
+                        st.rerun()
+                with col2:
+                    if st.button("🏠 重新开始", use_container_width=True):
+                        st.session_state.two_step_state['step'] = 0
+                        st.rerun()
+            else:
+                # 笔记数据存在，显示正常的管理界面
+                notes_data = two_step_state['step2_notes']
+                
+                # 笔记管理界面
+                st.subheader("📝 笔记管理")
+                
+                col1, col2 = st.columns([1, 3])
+                
+                with col1:
+                    # 笔记列表
+                    st.markdown("#### 📋 笔记列表")
+                    for i, note in enumerate(notes_data):
+                        yaml_data = note.get('yaml', {})
+                        title = yaml_data.get('title', f'笔记{i+1}')
+                        
+                        # 显示版本状态
+                        version_info = ""
+                        if i in two_step_state.get('note_versions', {}):
+                            version_data = two_step_state['note_versions'][i]
+                            if 'selected' in version_data:
+                                version_info = " ✅" if version_data['selected'] else " 🔄"
+                            else:
+                                version_info = " 🔄"
+                        
+                        if st.button(f"{title}{version_info}", key=f"note_select_{i}", use_container_width=True):
+                            st.session_state.two_step_state['selected_note_index'] = i
+                            st.rerun()
+                    
+                    # 整体操作按钮
+                    st.markdown("---")
+                    
+                    if st.button("🔄 重新生成全部", use_container_width=True):
+                        with st.spinner("📝 正在重新生成所有笔记..."):
+                            new_notes_data = processor.process_step2_generation_with_data(
+                                two_step_state['analysis_result'],
+                                two_step_state['subtitle_content'],
+                                two_step_state['metadata'],
+                                two_step_state['step2_config'],
+                                two_step_state.get('segmentation_settings', {})
+                            )
+                        
+                        if new_notes_data:
+                            st.session_state.two_step_state['step2_notes'] = new_notes_data
+                            st.session_state.two_step_state['note_versions'] = {}  # 清空版本
+                            render_success_box("✅ 全部笔记重新生成完成！")
+                            st.rerun()
+                        else:
+                            render_error_box("重新生成失败")
+                    
+                    # 检查所有笔记的版本状态
+                    all_confirmed = True
+                    for i, note in enumerate(notes_data):
+                        if i in two_step_state.get('note_versions', {}):
+                            version_data = two_step_state['note_versions'][i]
+                            if 'selected' not in version_data:
+                                all_confirmed = False
+                                break
+                    
+                    if all_confirmed:
+                        if st.button("✅ 确认保存全部", type="primary", use_container_width=True):
+                            # 保存所有笔记
+                            saved_files = processor.save_finalized_notes(
+                                notes_data, 
+                                two_step_state.get('note_versions', {}),
+                                two_step_state['metadata']
+                            )
+                            
+                            if saved_files:
+                                st.session_state.two_step_state['step'] = 3  # 最终完成状态
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                render_error_box("保存失败")
+                    else:
+                        st.info("💡 请先确认所有有修改版本的笔记")
+                
+                with col2:
+                    # 笔记详情区域
+                    selected_index = two_step_state.get('selected_note_index')
+                    
+                    if selected_index is not None and selected_index < len(notes_data):
+                        selected_note = notes_data[selected_index]
+                        
+                        # 检查是否有版本比较需要显示
+                        version_data = two_step_state.get('note_versions', {}).get(selected_index)
+                        
+                        if version_data and 'modified' in version_data:
+                            # 显示版本比较界面
+                            render_note_version_comparison(selected_note, version_data, selected_index, two_step_state)
+                        else:
+                            # 显示单个笔记的交互界面
+                            render_single_note_interaction(selected_note, selected_index, two_step_state)
+                    else:
+                        st.info("👆 请从左侧选择一个笔记进行查看或编辑")
+
+        elif two_step_state['step'] == 3:
+            # 最终完成状态
+            render_two_step_progress(2, True, True)
+            render_success_box("🎉 所有笔记处理完成！")
+            
+            # 显示处理结果统计
+            if two_step_state.get('step2_notes'):
+                total_notes = len(two_step_state['step2_notes'])
+                modified_notes = len(two_step_state.get('note_versions', {}))
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Token减少", "65.2%", help="智能分段带来的token节省")
+                    st.metric("总笔记数", total_notes)
                 with col2:
-                    st.metric("处理时间", "45s", delta="-23s", help="相比传统方式的时间节省")
+                    st.metric("修改笔记数", modified_notes)
                 with col3:
-                    st.metric("分段数量", "6", help="生成的字幕分段数量")
-            
-            # 显示并发处理结果（如果使用了）
-            if processor.concurrent_stats.get('used_concurrent', False):
-                st.subheader("🚀 并发处理效果")
-                render_concurrent_results_summary({
-                    'total_knowledge_points': processor.concurrent_stats.get('total_tasks', 0),
-                    'successful_notes': processor.concurrent_stats.get('completed_tasks', 0),
-                    'total_processing_time': processor.concurrent_stats.get('total_processing_time', 0),
-                    'used_concurrent': True,
-                    'estimated_time_saved': processor.concurrent_stats.get('estimated_time_saved', 0),
-                    'concurrent_stats': processor.concurrent_stats
-                })
+                    st.metric("完成度", "100%")
             
             # 重置按钮
             if st.button("🔄 处理新文件", use_container_width=True):
@@ -1531,10 +1779,11 @@ else:
                     'metadata': None,
                     'step1_config': None,
                     'step2_config': None,
-                    'segmentation_settings': None  # 重置分段设置
+                    'segmentation_settings': None,
+                    'step2_notes': None,
+                    'note_versions': {},
+                    'selected_note_index': None,
                 }
-                if 'edit_mode' in st.session_state:
-                    del st.session_state.edit_mode
                 st.rerun()
 
     elif menu_choice == "✍️ 格式化文本直录":

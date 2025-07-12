@@ -158,8 +158,8 @@ class ConceptManager:
 title: "法考概念数据库"
 aliases: ["概念数据库", "法考概念库"]
 tags: ["法考", "概念", "数据库", "索引", "hide-from-graph"]
-created: "{datetime.now().strftime('%Y-%m-%d')}"
-last_updated: "{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+created: "{datetime.now().astimezone().isoformat()}"
+last_updated: "{datetime.now().astimezone().isoformat()}"
 total_concepts: {len(self.concept_database)}
 ---
 

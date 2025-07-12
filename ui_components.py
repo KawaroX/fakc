@@ -206,37 +206,63 @@ def render_step1_result_viewer(analysis_result: dict, allow_edit: bool = True):
         knowledge_points = analysis_result['knowledge_points']
         st.markdown("### 📊 知识点统计")
         
+        # 添加数据类型验证和调试信息
+        valid_knowledge_points = []
+        invalid_items = []
+        
+        for i, kp in enumerate(knowledge_points):
+            if isinstance(kp, dict):
+                valid_knowledge_points.append(kp)
+            else:
+                invalid_items.append((i, type(kp).__name__, str(kp)[:100]))
+        
+        # 如果有无效项，显示调试信息
+        if invalid_items:
+            st.warning(f"⚠️ 检测到 {len(invalid_items)} 个无效的知识点项")
+            with st.expander("🔍 调试信息", expanded=False):
+                st.write("无效项详情:")
+                for i, item_type, content in invalid_items:
+                    st.write(f"- 索引 {i}: 类型={item_type}, 内容={content}")
+        
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("总知识点", len(knowledge_points))
+            st.metric("总知识点", len(valid_knowledge_points))
+            if invalid_items:
+                st.caption(f"({len(invalid_items)} 个无效项)")
         with col2:
-            high_importance = len([kp for kp in knowledge_points if kp.get('importance_level') == '高'])
+            high_importance = len([kp for kp in valid_knowledge_points if kp.get('importance_level') == '高'])
             st.metric("高重要性", high_importance)
         with col3:
-            concept_types = set([kp.get('concept_type', '未知') for kp in knowledge_points])
+            concept_types = set([kp.get('concept_type', '未知') for kp in valid_knowledge_points])
             st.metric("概念类型", len(concept_types))
         with col4:
-            avg_time = "计算中..." if knowledge_points else "无数据"
+            avg_time = "计算中..." if valid_knowledge_points else "无数据"
             st.metric("平均时长", avg_time)
         
         # 显示知识点列表
         st.markdown("### 📝 知识点详情")
-        
-        # 分重要性显示
-        for importance in ['高', '中', '低']:
-            filtered_kps = [kp for kp in knowledge_points if kp.get('importance_level') == importance]
-            if filtered_kps:
-                with st.expander(f"🎯 {importance}重要性知识点 ({len(filtered_kps)}个)", expanded=(importance == '高')):
-                    for i, kp in enumerate(filtered_kps, 1):
-                        col1, col2, col3 = st.columns([2, 1, 1])
-                        with col1:
-                            st.write(f"**{i}. {kp.get('concept_name', '未命名')}**")
-                            if kp.get('core_definition', {}).get('teacher_original'):
-                                st.caption(f"💬 {kp['core_definition']['teacher_original'][:100]}...")
-                        with col2:
-                            st.write(f"🏷️ {kp.get('concept_type', '未知')}")
-                        with col3:
-                            st.write(f"⏰ {kp.get('time_range', '未知')}")
+
+        # 使用验证过的知识点数据
+        if valid_knowledge_points:
+            # 分重要性显示
+            for importance in ['高', '中', '低']:
+                filtered_kps = [kp for kp in valid_knowledge_points if kp.get('importance_level') == importance]
+                if filtered_kps:
+                    with st.expander(f"🎯 {importance}重要性知识点 ({len(filtered_kps)}个)", expanded=(importance == '高')):
+                        for i, kp in enumerate(filtered_kps, 1):
+                            col1, col2, col3 = st.columns([2, 1, 1])
+                            with col1:
+                                st.write(f"**{i}. {kp.get('concept_name', '未命名')}**")
+                                if kp.get('core_definition', {}).get('teacher_original'):
+                                    st.caption(f"💬 {kp['core_definition']['teacher_original'][:100]}...")
+                            with col2:
+                                st.write(f"🏷️ {kp.get('concept_type', '未知')}")
+                            with col3:
+                                st.write(f"⏰ {kp.get('time_range', '未知')}")
+        else:
+            st.error("❌ 没有有效的知识点数据")
+            if invalid_items:
+                st.info("💡 建议重新运行第一步分析")
     
     # 显示概念结构
     if 'concept_structure' in analysis_result:
@@ -2041,3 +2067,172 @@ def render_concurrent_results_summary(results_data: dict):
                 
                 if stats.get('batches_processed', 0) > 1:
                     st.write(f"- 批次间平均间隔: ~60s")
+
+def render_note_version_comparison(original_note: dict, version_data: dict, 
+                                 note_index: int, two_step_state: dict):
+    """
+    渲染笔记版本比较界面
+    """
+    st.subheader("🔄 版本比较")
+    
+    # 显示选择状态
+    current_selection = version_data.get('selected', None)
+    if current_selection:
+        selection_text = "原版本" if current_selection == 'current' else "修改版本"
+        st.info(f"当前选择: {selection_text}")
+    else:
+        st.warning("请选择要保留的版本")
+    
+    # 并列显示两个版本
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📄 原版本")
+        current_note = version_data['current']
+        
+        if 'yaml' in current_note:
+            with st.expander("YAML信息"):
+                st.json(current_note['yaml'])
+        
+        if 'content' in current_note:
+            st.markdown(current_note['content'])
+        
+        if st.button("选择原版本", key=f"select_original_{note_index}", use_container_width=True):
+            st.session_state.two_step_state['note_versions'][note_index]['selected'] = 'current'
+            st.rerun()
+    
+    with col2:
+        st.markdown("#### 📝 修改版本")
+        modified_note = version_data['modified']
+        
+        if 'yaml' in modified_note:
+            with st.expander("YAML信息"):
+                st.json(modified_note['yaml'])
+        
+        if 'content' in modified_note:
+            st.markdown(modified_note['content'])
+        
+        if st.button("选择修改版本", key=f"select_modified_{note_index}", use_container_width=True):
+            st.session_state.two_step_state['note_versions'][note_index]['selected'] = 'modified'
+            st.rerun()
+    
+    # 确认选择后允许继续修改
+    if current_selection:
+        st.markdown("---")
+        if st.button("🔄 基于当前选择继续AI修改", key=f"continue_modify_{note_index}", use_container_width=True):
+            # 将选择的版本设为当前版本，清空修改版本
+            selected_note = version_data[current_selection]
+            st.session_state.two_step_state['step2_notes'][note_index] = selected_note
+            del st.session_state.two_step_state['note_versions'][note_index]
+            st.rerun()
+
+def render_single_note_interaction(note_data: dict, note_index: int, two_step_state: dict):
+    """
+    渲染单个笔记的交互界面
+    """
+    # 使用标签页组织功能
+    tab1, tab2, tab3 = st.tabs(["� 查看", "✏️ 编辑", "💡 AI修改"])
+    
+    with tab1:
+        # 查看笔记
+        yaml_data = note_data.get('yaml', {})
+        if yaml_data:
+            with st.expander("📌 笔记元数据"):
+                st.json(yaml_data)
+        
+        content = note_data.get('content', '')
+        if content:
+            st.markdown("#### 📝 笔记内容")
+            st.markdown(content)
+    
+    with tab2:
+        # 编辑笔记
+        st.subheader("✏️ 编辑笔记")
+        
+        # YAML编辑
+        yaml_content = yaml.dump(note_data.get('yaml', {}), allow_unicode=True)
+        edited_yaml = st.text_area(
+            "YAML Frontmatter:",
+            value=yaml_content,
+            height=150,
+            key=f"yaml_edit_{note_index}"
+        )
+        
+        # 内容编辑
+        edited_content = st.text_area(
+            "笔记内容:",
+            value=note_data.get('content', ''),
+            height=400,
+            key=f"content_edit_{note_index}"
+        )
+        
+        if st.button("💾 保存编辑", key=f"save_edit_{note_index}", type="primary"):
+            try:
+                edited_note = {
+                    'yaml': yaml.safe_load(edited_yaml),
+                    'content': edited_content
+                }
+                st.session_state.two_step_state['step2_notes'][note_index] = edited_note
+                render_success_box("✅ 编辑已保存")
+                st.rerun()
+            except yaml.YAMLError as e:
+                render_error_box(f"YAML格式错误: {e}")
+    
+    with tab3:
+        # AI修改
+        st.subheader("💡 AI修改笔记")
+        
+        user_suggestion = st.text_area(
+            "请描述你希望如何修改这篇笔记：",
+            placeholder="例如：增加更多实务案例、简化理论描述、补充相关法条、调整结构层次...",
+            height=100,
+            key=f"ai_suggestion_{note_index}"
+        )
+        
+        if st.button("🤖 AI修改", key=f"ai_modify_{note_index}", type="primary"):
+            if user_suggestion.strip():
+                with st.spinner("🤖 AI正在根据建议修改笔记..."):
+                    # 获取对应的知识点信息
+                    knowledge_points = two_step_state['analysis_result'].get('knowledge_points', [])
+                    corresponding_kp = None
+                    
+                    if note_index < len(knowledge_points):
+                        corresponding_kp = knowledge_points[note_index]
+                    
+                    if corresponding_kp:
+                        processor = st.session_state.processor
+                        step2_processor = processor.create_ai_processor_from_config(
+                            two_step_state['step2_config']
+                        )
+                        
+                        modified_note = step2_processor.modify_single_note(
+                            note_data,
+                            two_step_state['subtitle_content'],
+                            corresponding_kp,
+                            user_suggestion
+                        )
+                        
+                        if modified_note:
+                            # 安全地保存到版本管理中
+                            # 确保note_versions键存在
+                            if 'note_versions' not in st.session_state.two_step_state:
+                                st.session_state.two_step_state['note_versions'] = {}
+                            
+                            # 确保当前笔记的版本数据存在
+                            if note_index not in st.session_state.two_step_state['note_versions']:
+                                st.session_state.two_step_state['note_versions'][note_index] = {}
+                            
+                            # 更新版本数据
+                            st.session_state.two_step_state['note_versions'][note_index].update({
+                                'current': note_data,
+                                'modified': modified_note
+                            })
+                            
+                            render_success_box("✅ AI修改完成！请在版本比较中选择要保留的版本。")
+                            st.rerun()
+                        else:
+                            render_error_box("AI修改失败，请重试")
+                    else:
+                        render_error_box("找不到对应的知识点信息")
+            else:
+                st.warning("请先输入修改建议")
