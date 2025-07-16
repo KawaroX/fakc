@@ -381,14 +381,16 @@ class IntelligentSegmenter:
                 
                 # 检查时间戳是否在目标范围内
                 if time_range.start <= timestamp <= time_range.end:
-                    segment_text.append(line['text'])
+                    # 保留原始时间戳（LRC格式）
+                    segment_text.append(f"[{line['original_time']}] {line['text']}")
                     matched_lines.append(line)
                 # 对于SRT格式，还要检查结束时间
                 elif 'end_timestamp' in line:
                     end_timestamp = line['end_timestamp']
                     # 如果字幕行与时间范围有重叠，则包含
                     if not (end_timestamp < time_range.start or timestamp > time_range.end):
-                        segment_text.append(line['text'])
+                        # 保留原始时间戳（SRT格式）
+                        segment_text.append(f"[{line['original_time']}] {line['text']}")
                         matched_lines.append(line)
             
             # 创建分段
